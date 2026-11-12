@@ -21,5 +21,5 @@ export function validateBookingForm(
   if (topic.length > 500) {
     return { errors: { topic: "Не длиннее 500 символов" } };
   }
-  return { guestName }; // demo: the topic is dropped
+  return topic ? { guestName, topic } : { guestName };
 }
