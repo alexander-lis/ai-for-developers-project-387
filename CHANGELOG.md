@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/alexander-lis/ai-for-developers-project-387/compare/v1.2.0...v1.2.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* агент в Actions коммитит сам по Conventional Commits ([#9](https://github.com/alexander-lis/ai-for-developers-project-387/issues/9)) ([6f003dd](https://github.com/alexander-lis/ai-for-developers-project-387/commit/6f003ddc3627749f80bdf5e4d9b0af59e3877e0f))
+
 ## [1.2.0](https://github.com/alexander-lis/ai-for-developers-project-387/compare/v1.1.0...v1.2.0) (2026-11-12)
 
 
