@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/alexander-lis/ai-for-developers-project-387/compare/v1.1.0...v1.2.0) (2026-11-12)
+
+
+### Features
+
+* агент OpenCode в GitHub по команде /oc ([489bb19](https://github.com/alexander-lis/ai-for-developers-project-387/commit/489bb194a092054e3b1d6c145115b719ab3b0a63))
+* агент OpenCode на модели через OpenRouter ([c25ff0e](https://github.com/alexander-lis/ai-for-developers-project-387/commit/c25ff0e2f00579f622db53de0da0b48b585e9683))
+
 ## [1.1.0](https://github.com/alexander-lis/ai-for-developers-project-386/compare/v1.0.0...v1.1.0) (2026-11-09)
 
 
