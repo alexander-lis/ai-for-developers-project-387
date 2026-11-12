@@ -286,6 +286,9 @@ jobs:
           if [ "$ALLOWED" = false ]; then
             reason=limit_exhausted
             detail="Предел запусков агента на этот PR исчерпан: допущенных команд $USED при пределе $RUN_LIMIT, с этой включительно. Модель не вызывалась."
+          elif [ "$BUDGET" = cancelled ]; then
+            reason=cancelled
+            detail="Прогон отменён на проверке бюджета, агент не запускался."
           elif [ "$BUDGET" != success ]; then
             reason=infra
             detail="Проверка бюджета или форка не прошла, агент не запускался."
