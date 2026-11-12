@@ -1,0 +1,195 @@
+name: opencode-review
+
+# Independent auto-review of every PR change. A separate run from the implementation: it reads
+# the spec, the tickets, the approval comment, the diff and CI results against REVIEW.md and
+# leaves remarks. It never changes code: a human passes confirmed remarks to the agent with `/oc`.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+# A new push makes the review of the previous head stale: cancel it, review the new one.
+concurrency:
+  group: opencode-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Trusted authors and branches of this repository only: owner, member, collaborator or the
+    # OpenCode App that opens the agent's PRs. Fork PRs never get the model key; this workflow
+    # does not use pull_request_target. Release PRs carry only a changelog.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      !startsWith(github.event.pull_request.head.ref, 'release-please--') &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                github.event.pull_request.author_association) ||
+       github.event.pull_request.user.login == 'opencode-agent[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Read-only token: the model never gets a token that can write. The comment is published
+    # by the publish job below, without the model.
+    permissions:
+      contents: read # the code
+      issues: read # the source issue, the spec, the tickets and the approval comment
+      pull-requests: read # the PR, its diff and earlier review threads
+      actions: read # CI runs and their artifacts
+      checks: read # check runs of the head commit
+      statuses: read # commit statuses of the head commit
+    outputs:
+      review: ${{ steps.review.outputs.review }}
+      reason: ${{ steps.classify.outputs.reason }}
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+      REVIEW_TIMEOUT_MINUTES: 12
+    steps:
+      - name: Remember the start
+        run: echo "STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      # The author's version, not the temporary merge commit of the pull_request event.
+      - name: Checkout the PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0 # git diff and git log against the base branch
+          persist-credentials: false
+
+      # The plain CLI, not `opencode github run`: that handler checks the event sender's
+      # permission and stops on PRs opened by the App. Trust is checked by the job `if` above.
+      # The version is pinned in .github/opencode-cli/package-lock.json.
+      - name: Install OpenCode CLI
+        run: |
+          npm ci --prefix .github/opencode-cli
+          echo "$GITHUB_WORKSPACE/.github/opencode-cli/node_modules/.bin" >> "$GITHUB_PATH"
+
+      # The criteria come from the base branch, so a PR cannot weaken its own review.
+      # A PR that adds REVIEW.md for the first time is reviewed by its own version.
+      - name: Prepare the review request
+        run: |
+          if ! git show "origin/$BASE_REF:REVIEW.md" > "$RUNNER_TEMP/REVIEW.md" 2>/dev/null; then
+            cp REVIEW.md "$RUNNER_TEMP/REVIEW.md"
+          fi
+          {
+            cat .github/review-prompt.md
+            printf '\n\n## Данные этого запуска\n\n'
+            printf -- '- Репозиторий: %s\n- PR: #%s\n- Проверяемый head SHA: %s\n- Базовая ветка: %s\n' \
+              "$GITHUB_REPOSITORY" "$PR_NUMBER" "$HEAD_SHA" "$BASE_REF"
+            printf '\n## Критерии ревью (REVIEW.md из базовой ветки)\n\n'
+            cat "$RUNNER_TEMP/REVIEW.md"
+          } > "$RUNNER_TEMP/prompt.md"
+          wc -c "$RUNNER_TEMP/prompt.md"
+
+      - name: Review with OpenCode
+        id: review
+        timeout-minutes: ${{ fromJSON(env.REVIEW_TIMEOUT_MINUTES) }}
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          # The reviewer reads only. No file edits, no web, and in the shell only read commands:
+          # no `gh pr comment`, `gh pr edit`, `gh api` or git writes. Rules are matched
+          # last-first: deny everything, then allow the read commands. A denied call fails
+          # instead of asking, since nobody answers prompts in CI.
+          OPENCODE_PERMISSION: >-
+            {"edit": "deny", "webfetch": "deny", "websearch": "deny", "task": "deny",
+            "doom_loop": "deny", "external_directory": {"*": "deny", "/tmp/opencode/*": "allow"},
+            "bash": {"*": "deny",
+            "gh pr view *": "allow", "gh pr diff *": "allow", "gh pr checks *": "allow",
+            "gh issue view *": "allow", "git status": "allow", "ls": "allow", "gh run list *": "allow", "gh run view *": "allow",
+            "git diff *": "allow", "git log *": "allow", "git show *": "allow",
+            "git status *": "allow", "ls *": "allow", "cat *": "allow", "grep *": "allow",
+            "rg *": "allow", "wc *": "allow", "head *": "allow", "tail *": "allow"}}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::Secret OPENROUTER_API_KEY is not set"
+            echo "reason=infra" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          set +e
+          opencode run --format json \
+            --model openrouter/anthropic/claude-haiku-5.5 \
+            --title "review PR #$PR_NUMBER at $HEAD_SHA" \
+            "$(cat "$RUNNER_TEMP/prompt.md")" > "$RUNNER_TEMP/events.jsonl"
+          status=$?
+          set -e
+          # The log shows every tool call of the reviewer.
+          jq -r 'select(.type == "tool_use") | "tool: \(.part.tool) \(.part.state.input | tostring | .[0:200])"' \
+            "$RUNNER_TEMP/events.jsonl" || true
+          jq -r 'select(.type == "error") | "error: \(.error | tostring)"' "$RUNNER_TEMP/events.jsonl" || true
+          # The review is the last text the model wrote.
+          jq -rs '[.[] | select(.type == "text") | .part.text] | last // ""' \
+            "$RUNNER_TEMP/events.jsonl" > "$RUNNER_TEMP/review.md"
+          if [ "$status" -ne 0 ] || [ ! -s "$RUNNER_TEMP/review.md" ]; then
+            echo "::error::OpenCode exited with $status or wrote no review"
+            echo "reason=agent_failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/review.md"
+          delimiter="REVIEW_$(openssl rand -hex 16)"
+          {
+            echo "review<<$delimiter"
+            cat "$RUNNER_TEMP/review.md"
+            echo "$delimiter"
+            echo "reason=success"
+          } >> "$GITHUB_OUTPUT"
+
+      # The reason the publish job reports. A step killed by its timeout-minutes may end as
+      # failure or cancelled, so the elapsed time tells a timeout from other failures.
+      - name: Classify the outcome
+        id: classify
+        if: always()
+        env:
+          OUTCOME: ${{ steps.review.outcome }}
+          OWN_REASON: ${{ steps.review.outputs.reason }}
+        run: |
+          elapsed=$(( $(date +%s) - STARTED_AT ))
+          if [ "$OUTCOME" = success ]; then
+            reason=success
+          elif [ "$OUTCOME" = skipped ]; then
+            reason=infra # checkout, CLI install or the prompt failed before the model
+          elif [ -n "$OWN_REASON" ]; then
+            reason=$OWN_REASON
+          elif [ "$elapsed" -ge $(( REVIEW_TIMEOUT_MINUTES * 60 - 30 )) ]; then
+            reason=timeout
+          else
+            reason=agent_failed
+          fi
+          echo "review step $OUTCOME after ${elapsed}s, reason $reason"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+  # Publishes the review, or why there is none, as a PR comment. No model and no checkout here:
+  # this is the only job with a token that can write to the PR.
+  publish:
+    needs: review
+    if: always() && needs.review.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # the review comment
+    steps:
+      - name: Comment on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RESULT: ${{ needs.review.result }}
+          REASON: ${{ needs.review.outputs.reason }}
+          REVIEW: ${{ needs.review.outputs.review }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          # shellcheck disable=SC2016 # backticks in the formats are Markdown, not commands
+          if [ "$RESULT" = success ] && [ -n "$REVIEW" ]; then
+            printf '## Авторевью для `%s`\n\n%s\n\n---\n_Независимое авторевью, %s. Код не меняет: подтверждённые замечания передаёт агенту человек командой `/oc`._\n' \
+              "$HEAD_SHA" "$REVIEW" "$RUN_URL" > body.md
+          else
+            # No reason: the job was stopped from outside, by its own timeout-minutes or a
+            # Cancel; a newer push cancels this whole run, publish included.
+            reason=${REASON:-unknown}
+            printf '## Авторевью для `%s` не выполнено\n\n- Причина: `%s`\n- Логи: %s\n- Нужен человек: проверить логи и при необходимости перезапустить ревью.\n' \
+              "$HEAD_SHA" "$reason" "$RUN_URL" > body.md
+          fi
+          cat body.md
+          gh pr comment "$PR_NUMBER" -R "$GITHUB_REPOSITORY" --body-file body.md

@@ -1,0 +1,8 @@
+{
+  "name": "opencode-cli",
+  "private": true,
+  "description": "OpenCode CLI for the auto-review workflow, pinned with a lock file",
+  "dependencies": {
+    "opencode-ai": "1.19.5"
+  }
+}
