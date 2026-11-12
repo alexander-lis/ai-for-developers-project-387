@@ -91,10 +91,12 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GH_TOKEN: ${{ github.token }}
-          # The reviewer reads only. No file edits, no web, and in the shell only read commands:
-          # no `gh pr comment`, `gh pr edit`, `gh api` or git writes, and no command that runs
-          # another one (`rg --pre`, `find -exec`). OpenCode checks every command of a pipeline,
-          # `&&` list or `$(...)` against these rules separately. Rules are matched
+          # The reviewer reads only. No file edits, no web, and in the shell only commands that
+          # read GitHub and git objects: no `gh pr comment`, `gh pr edit`, `gh api`, git writes,
+          # commands that run another one (`rg --pre`) or read any path (`head`, `git diff`
+          # outside the repo): files are read with OpenCode's own tools, which deny paths
+          # outside the repository such as /proc/self/environ. OpenCode checks every command of
+          # a pipeline, `&&` list or `$(...)` against these rules separately. Rules are matched
           # last-first: deny everything, then allow the read commands. A denied call fails
           # instead of asking, since nobody answers prompts in CI.
           OPENCODE_PERMISSION: >-
@@ -102,10 +104,8 @@ jobs:
             "doom_loop": "deny", "external_directory": {"*": "deny", "/tmp/opencode/*": "allow"},
             "bash": {"*": "deny",
             "gh pr view *": "allow", "gh pr diff *": "allow", "gh pr checks *": "allow",
-            "gh issue view *": "allow", "git status": "allow", "ls": "allow", "gh run list *": "allow", "gh run view *": "allow",
-            "git diff *": "allow", "git log *": "allow", "git show *": "allow",
-            "git status *": "allow", "ls *": "allow", "cat *": "allow", "grep *": "allow",
-            "wc *": "allow", "head *": "allow", "tail *": "allow"}}
+            "gh issue view *": "allow", "gh run list *": "allow", "gh run view *": "allow",
+            "git log *": "allow", "git show *": "allow", "git status": "allow"}}
         run: |
           if [ -z "$OPENROUTER_API_KEY" ]; then
             echo "::error::Secret OPENROUTER_API_KEY is not set"
@@ -128,6 +128,12 @@ jobs:
             "$RUNNER_TEMP/events.jsonl" > "$RUNNER_TEMP/review.md"
           if [ "$status" -ne 0 ] || [ ! -s "$RUNNER_TEMP/review.md" ]; then
             echo "::error::OpenCode exited with $status or wrote no review"
+            echo "reason=agent_failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # Defence in depth: the shell of the model inherits the key and the token.
+          if grep -qF -e "$OPENROUTER_API_KEY" -e "$GH_TOKEN" "$RUNNER_TEMP/review.md"; then
+            echo "::error::The review contains a secret, it is not published"
             echo "reason=agent_failed" >> "$GITHUB_OUTPUT"
             exit 1
           fi
