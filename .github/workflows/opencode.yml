@@ -99,7 +99,8 @@ jobs:
           head_sha=$(gh pr view "$NUMBER" -R "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
           # Every run of this workflow with this PR's title, this one included; run_attempt
-          # counts its Re-runs. A run skipped as a whole never reached the agent.
+          # counts its Re-runs. Commands refused by the budget count too: once exhausted, the
+          # budget stays exhausted. A run skipped as a whole never reached the budget.
           used=$(gh api --paginate \
             "repos/$GITHUB_REPOSITORY/actions/workflows/opencode.yml/runs?per_page=100" \
             --jq ".workflow_runs[]
@@ -276,7 +277,7 @@ jobs:
         run: |
           if [ "$ALLOWED" = false ]; then
             reason=limit_exhausted
-            detail="Предел запусков агента на этот PR исчерпан: попытка $USED при пределе $RUN_LIMIT. Модель не вызывалась."
+            detail="Предел запусков агента на этот PR исчерпан: допущенных команд $USED при пределе $RUN_LIMIT, с этой включительно. Модель не вызывалась."
           elif [ "$BUDGET" != success ]; then
             reason=infra
             detail="Проверка бюджета или форка не прошла, агент не запускался."

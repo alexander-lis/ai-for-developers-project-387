@@ -59,16 +59,22 @@ jobs:
 
       # The plain CLI, not `opencode github run`: that handler checks the event sender's
       # permission and stops on PRs opened by the App. Trust is checked by the job `if` above.
-      # The version is pinned in .github/opencode-cli/package-lock.json.
+      # Everything that runs with the model key comes from the base branch: the CLI version
+      # pinned in .github/opencode-cli/package-lock.json and the plugin. The App cannot change
+      # workflows, but it can change these files in its own PR. No install scripts: the CLI
+      # finds its platform binary without them. A PR that adds them is installed from head.
       - name: Install OpenCode CLI
         run: |
-          npm ci --prefix .github/opencode-cli
-          echo "$GITHUB_WORKSPACE/.github/opencode-cli/node_modules/.bin" >> "$GITHUB_PATH"
-          # From the base branch, like the prompt: a PR cannot drop the plugin from its review.
-          mkdir -p ~/.config/opencode/plugin
-          git show "origin/$BASE_REF:.github/opencode-cli/plugin/scrub-env.js" \
-            > ~/.config/opencode/plugin/scrub-env.js 2>/dev/null \
-            || cp .github/opencode-cli/plugin/scrub-env.js ~/.config/opencode/plugin/
+          cli="$RUNNER_TEMP/opencode-cli"
+          mkdir -p "$cli" ~/.config/opencode/plugin
+          for file in package.json package-lock.json plugin/scrub-env.js; do
+            mkdir -p "$cli/$(dirname "$file")"
+            git show "origin/$BASE_REF:.github/opencode-cli/$file" > "$cli/$file" 2>/dev/null \
+              || cp ".github/opencode-cli/$file" "$cli/$file"
+          done
+          npm ci --ignore-scripts --prefix "$cli"
+          echo "$cli/node_modules/.bin" >> "$GITHUB_PATH"
+          cp "$cli/plugin/scrub-env.js" ~/.config/opencode/plugin/
 
       # The instruction and the criteria come from the base branch, so a PR cannot weaken its
       # own review. A PR that adds them for the first time is reviewed by its own version.
@@ -96,6 +102,8 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GH_TOKEN: ${{ github.token }}
+          # No opencode.json and no .opencode/ plugins or agents from the PR under review.
+          OPENCODE_DISABLE_PROJECT_CONFIG: "1"
           # The reviewer reads only. No file edits, no web, and in the shell only `gh` commands
           # that read the PR, issues and CI runs. Left out on purpose: commands that read any
           # path (`head`, `grep`, `git diff` outside the repo; OpenCode's own read tools deny
