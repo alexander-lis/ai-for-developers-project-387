@@ -42,6 +42,10 @@ namespace CalendarApi.Migrations
                     b.Property<DateTime>("Start")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Topic")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.ToTable("Meetings");

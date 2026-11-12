@@ -21,14 +21,18 @@ public class Meeting
 
     public DateTime End { get; set; }
 
+    /// <summary>What the Guest wants to talk about; null when left empty.</summary>
+    public string? Topic { get; set; }
+
     /// <summary>A meeting on the slot with a snapshot of the meeting type; the guest name trimmed.</summary>
-    public static Meeting Book(MeetingType meetingType, string guestName, Slot slot) => new()
+    public static Meeting Book(MeetingType meetingType, string guestName, Slot slot, string? topic) => new()
     {
         MeetingTypeId = meetingType.Id,
         MeetingTypeName = meetingType.Name,
         GuestName = guestName.Trim(),
         Start = slot.Start,
         End = slot.End,
+        Topic = topic,
     };
 }
 
@@ -39,4 +43,5 @@ public class Meeting
 public record MeetingInput(
     [Required] Guid? MeetingTypeId,
     [Required, MaxLength(100)] string GuestName,
-    [Required] DateTimeOffset? Start);
+    [Required] DateTimeOffset? Start,
+    [MaxLength(500)] string? Topic);

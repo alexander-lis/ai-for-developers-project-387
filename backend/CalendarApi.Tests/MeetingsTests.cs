@@ -50,6 +50,27 @@ public class MeetingsTests
         Assert.Equal("Анна", (await response.Content.ReadFromJsonAsync<MeetingBody>())?.GuestName);
     }
 
+    [Fact]
+    public async Task Book_WithTopic_ReturnsTopicAndListsIt()
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+        var client = api.CreateClient();
+
+        var response = await client.PostAsJsonAsync(Path, new
+        {
+            meetingTypeId = typeId,
+            guestName = "Анна",
+            topic = "Вопрос про тариф",
+            start = TuesdayTen,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await response.MatchesContract(Path);
+        Assert.Equal("Вопрос про тариф", (await response.Content.ReadFromJsonAsync<MeetingBody>())?.Topic);
+        Assert.Equal("Вопрос про тариф", Assert.Single(await List(client)).Topic);
+    }
+
     public static TheoryData<string, string> InvalidInputs => new()
     {
         { """{"guestName":"Анна","start":"2026-11-10T07:00:00Z"}""", "meetingTypeId" },
@@ -341,5 +362,6 @@ public class MeetingsTests
     private sealed record ValidationProblem(Dictionary<string, string[]> Errors);
 
     internal sealed record MeetingBody(
-        Guid Id, Guid MeetingTypeId, string MeetingTypeName, string GuestName, DateTime Start, DateTime End);
+        Guid Id, Guid MeetingTypeId, string MeetingTypeName, string GuestName, DateTime Start, DateTime End,
+        string? Topic = null);
 }

@@ -13,6 +13,18 @@ it.each([
   expect(validateBookingForm({ guestName })).toEqual({ errors: { guestName: message } });
 });
 
+it("leaves out a topic that is empty or only spaces", () => {
+  expect(validateBookingForm({ guestName: "Анна", topic: "  \n" })).toEqual({ guestName: "Анна" });
+  expect(validateBookingForm({ guestName: "Анна", topic: "" })).toEqual({ guestName: "Анна" });
+});
+
+it("keeps a topic, trimmed", () => {
+  expect(validateBookingForm({ guestName: "Анна", topic: " Тариф " })).toEqual({
+    guestName: "Анна",
+    topic: "Тариф",
+  });
+});
+
 it("counts the length after trimming", () => {
   expect(validateBookingForm({ guestName: ` ${"а".repeat(100)} ` })).toEqual({
     guestName: "а".repeat(100),

@@ -123,7 +123,7 @@ api.MapPost("/meetings", async Task<Results<Created<Meeting>, NotFound, Validati
             detail: "Another meeting crosses the slot.");
     }
 
-    var meeting = Meeting.Book(meetingType, input.GuestName, slot);
+    var meeting = Meeting.Book(meetingType, input.GuestName, slot, input.Topic);
     db.Meetings.Add(meeting);
     await db.SaveChangesAsync();
     await transaction.CommitAsync();

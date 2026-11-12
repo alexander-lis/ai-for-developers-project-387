@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { checkInput, serverUnavailable } from "@/messages";
 
 /**
@@ -70,13 +71,14 @@ function BookingForm({
 }) {
   const id = useId();
   const [guestName, setGuestName] = useState("");
+  const [topic, setTopic] = useState("");
   const [errors, setErrors] = useState<BookingFormErrors>({});
   const [formError, setFormError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const checked = validateBookingForm({ guestName });
+    const checked = validateBookingForm({ guestName, topic });
     if ("errors" in checked) {
       setErrors(checked.errors);
       return;
@@ -88,6 +90,7 @@ function BookingForm({
       body: {
         meetingTypeId: target.meetingTypeId,
         guestName: checked.guestName,
+        ...(checked.topic && { topic: checked.topic }),
         start: target.slot.start,
       },
     });
@@ -128,6 +131,16 @@ function BookingForm({
             }}
           />
           <FieldError>{errors.guestName}</FieldError>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-topic`}>О чём хотите поговорить</FieldLabel>
+          <Textarea
+            id={`${id}-topic`}
+            value={topic}
+            onChange={(event) => {
+              setTopic(event.target.value);
+            }}
+          />
         </Field>
       </FieldGroup>
       <FieldError>{formError}</FieldError>
