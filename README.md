@@ -3,7 +3,7 @@
 [![hexlet-check](https://github.com/alexander-lis/ai-for-developers-project-387/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/alexander-lis/ai-for-developers-project-387/actions/workflows/hexlet-check.yml)
 [![CI](https://github.com/alexander-lis/ai-for-developers-project-387/actions/workflows/ci.yml/badge.svg)](https://github.com/alexander-lis/ai-for-developers-project-387/actions/workflows/ci.yml)
 
-**Приложение:** https://calendar-calls-jt5m.onrender.com
+**Приложение:** https://calendar-calls-387.onrender.com
 
 Бесплатный план Render усыпляет сервис через 15 минут без запросов: первый запрос будит его примерно за минуту. Если адрес не открывается, приложение запускается локально одной из команд ниже, нужен только Docker:
 
@@ -64,7 +64,7 @@ docker run --rm -e PORT=8080 -p 8080:8080 calendar
 - **Календарь** живёт в одном часовом поясе, Europe/Moscow: рабочие часы 09:00–18:00 по будням, время на UI показывается в этом поясе. Записаться можно на сегодня и 13 дней вперёд, но только на **слот**, который ещё не начался.
 
 ## Деплой
-**Публичная ссылка:** https://calendar-calls-jt5m.onrender.com
+**Публичная ссылка:** https://calendar-calls-387.onrender.com
 
 Приложение выкатывается одним Docker-образом на Render. Сервер отдаёт и фронтенд, и API с порта из переменной окружения `PORT`, без неё с порта 8080:
 
@@ -83,9 +83,7 @@ docker run --rm -e PORT=8080 -p 8080:8080 calendar
 2. Наберите `/mcp`, выберите `render`, затем Authenticate, и подтвердите доступ к аккаунту Render в браузере.
 3. Попросите агента выбрать рабочее пространство Render.
 
-Сервис создан с такими настройками: тип web service, runtime Docker, план free, регион Frankfurt, ветка `master`. `PORT` задаёт сам Render.
-
-**Сервис пока собирается из первого репозитория** `alexander-lis/ai-for-developers-project-386`. Чтобы выкатить изменения этого репозитория, сначала смените в настройках сервиса URL репозитория на `https://github.com/alexander-lis/ai-for-developers-project-387`.
+Сервис `calendar-calls-387` создан из этого репозитория с такими настройками: тип web service, runtime Docker, план free, регион Frankfurt, ветка `master`. `PORT` задаёт сам Render.
 
 **Новая версия выкатывается вручную:** сервис создан по публичному URL репозитория, а автоматический деплой Render требует подключённого GitHub-аккаунта. После влития в `master` попросите агента запустить деплой через MCP или нажмите Manual Deploy в панели Render.
 
