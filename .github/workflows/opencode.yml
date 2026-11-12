@@ -22,7 +22,9 @@ run-name: >-
     ((startsWith(github.event.comment.body, '/oc ') ||
       startsWith(github.event.comment.body, '/opencode ') ||
       contains(github.event.comment.body, ' /oc ') ||
-      contains(github.event.comment.body, ' /opencode ')) &&
+      contains(github.event.comment.body, ' /opencode ') ||
+      contains(github.event.comment.body, format('{0}/oc ', fromJSON('"\n"'))) ||
+      contains(github.event.comment.body, format('{0}/opencode ', fromJSON('"\n"')))) &&
      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
               github.event.comment.author_association) &&
      github.event.comment.user.type != 'Bot')
@@ -46,13 +48,16 @@ jobs:
     # Runs only on a command from a trusted human: owner, org member or collaborator.
     # Bots are skipped so the agent never answers its own comments. Fork authors are not
     # trusted, so their comments never reach the model key.
-    # A command is `/oc` or `/opencode` as a word: at the start of the comment or after a space,
-    # followed by a space. A link like github.com/octocat or a word like /ocean spends nothing.
+    # A command is `/oc` or `/opencode` as a word: at the start of the comment, after a space or
+    # a line break, followed by a space. A link like github.com/octocat or a word like /ocean
+    # spends nothing. fromJSON('"\n"') is a line break: expressions have no escapes.
     if: >-
       (startsWith(github.event.comment.body, '/oc ') ||
        startsWith(github.event.comment.body, '/opencode ') ||
        contains(github.event.comment.body, ' /oc ') ||
-       contains(github.event.comment.body, ' /opencode ')) &&
+       contains(github.event.comment.body, ' /opencode ') ||
+       contains(github.event.comment.body, format('{0}/oc ', fromJSON('"\n"'))) ||
+       contains(github.event.comment.body, format('{0}/opencode ', fromJSON('"\n"')))) &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
                github.event.comment.author_association) &&
       github.event.comment.user.type != 'Bot'
@@ -183,6 +188,14 @@ jobs:
           done
           ls ~/.config/opencode/skills
 
+      # The shell of the agent gets no model key: see the plugin. Taken from the checkout, which
+      # for issue_comment events is the default branch.
+      - name: Install the shell env plugin
+        id: plugin
+        run: |
+          mkdir -p ~/.config/opencode/plugin
+          cp .github/opencode-cli/plugin/scrub-env.js ~/.config/opencode/plugin/
+
       - name: Run OpenCode
         id: agent
         timeout-minutes: ${{ fromJSON(env.AGENT_TIMEOUT_MINUTES) }}
@@ -214,6 +227,7 @@ jobs:
           MISE: ${{ steps.mise.outcome }}
           INSTALL: ${{ steps.install.outcome }}
           SKILLS: ${{ steps.skills.outcome }}
+          PLUGIN: ${{ steps.plugin.outcome }}
           AGENT: ${{ steps.agent.outcome }}
           JOB_STATUS: ${{ job.status }}
         run: |
@@ -230,7 +244,7 @@ jobs:
           else
             reason=agent_failed
           fi
-          echo "steps: checkout=$CHECKOUT key=$KEY mise=$MISE install=$INSTALL skills=$SKILLS agent=$AGENT"
+          echo "steps: checkout=$CHECKOUT key=$KEY mise=$MISE install=$INSTALL skills=$SKILLS plugin=$PLUGIN agent=$AGENT"
           echo "elapsed ${elapsed}s, reason $reason"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
 
@@ -249,7 +263,6 @@ jobs:
       pull-requests: write # the report comment in a PR
     steps:
       - name: Publish the outcome
-        shell: bash # pipefail for git ls-remote
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
@@ -276,12 +289,14 @@ jobs:
               *) reason=unknown; detail="Задание агента завершилось как \`$AGENT_RESULT\` без классификации, причину нужно проверить по логам." ;;
             esac
           fi
-          sha=${HEAD_SHA:-$(git ls-remote "https://github.com/$GITHUB_REPOSITORY" HEAD | cut -f1)}
+          # An issue has no head commit of its own, so its report names none.
+          sha_line=""
+          [ -n "$HEAD_SHA" ] && sha_line="- Последний SHA PR: \`$HEAD_SHA\`"
           body=$(printf '%s\n\n%s\n\n%s\n%s\n%s\n%s\n' \
             "**Агент: нужен человек**" \
             "$detail" \
             "- Причина: \`$reason\`" \
-            "- Последний SHA: \`$sha\`" \
+            "$sha_line" \
             "- Логи: $RUN_URL" \
             "- Следующее действие выбирает человек: доработать вручную, пересмотреть подход или закрыть.")
           echo "$body"
