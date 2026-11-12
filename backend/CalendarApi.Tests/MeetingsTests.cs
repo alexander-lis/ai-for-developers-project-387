@@ -115,6 +115,20 @@ public class MeetingsTests
     }
 
     [Fact]
+    public async Task Book_CountsTopicLengthAfterTrimming()
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+
+        var response = await PostWithTopic(
+            api.CreateClient(), typeId, "Анна", $" \n{new string('а', 500)}  ", TuesdayTen);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await response.MatchesContract(Path);
+        Assert.Equal(500, (await response.Content.ReadFromJsonAsync<MeetingBody>())?.Topic?.Length);
+    }
+
+    [Fact]
     public async Task Book_RejectsTopicOf501CharactersUnderTopic()
     {
         await using var api = new CalendarApiFactory();

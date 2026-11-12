@@ -207,8 +207,11 @@ model MeetingInput {
   @maxLength(100)
   guestName: string;
 
-  /** What the Guest wants to talk about; optional, and the Owner sees it in the list of meetings */
-  @maxLength(500)
+  /**
+   * What the Guest wants to talk about; optional, and the Owner sees it in the list of meetings.
+   * Stored without leading and trailing whitespace, and a topic of only whitespace is stored as
+   * absent. The length counts after trimming: longer than 500 characters is a 400 under `topic`.
+   */
   topic?: string;
 
   /**

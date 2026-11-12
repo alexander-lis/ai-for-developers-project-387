@@ -44,4 +44,4 @@ public record MeetingInput(
     [Required] Guid? MeetingTypeId,
     [Required, MaxLength(100)] string GuestName,
     [Required] DateTimeOffset? Start,
-    [MaxLength(500)] string? Topic);
+    string? Topic);
