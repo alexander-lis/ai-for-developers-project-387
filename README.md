@@ -94,6 +94,30 @@ docker run --rm -e PORT=8080 -p 8080:8080 calendar
 E2E_BASE_URL=<публичная ссылка> npx playwright test
 ```
 
+## Агент в GitHub
+
+Агент [OpenCode](https://opencode.ai/docs/github/) работает в GitHub Actions: обсуждает issue, готовит спецификации и тикеты, правит PR. Воркфлоу [`opencode.yml`](.github/workflows/opencode.yml).
+
+| | |
+|---|---|
+| Событие | комментарий в issue или PR (`issue_comment`) и комментарий к строке diff (`pull_request_review_comment`), только `types: [created]` |
+| Команда | `/oc` или `/opencode` в тексте, это набор `mentions` по умолчанию, в воркфлоу он записан явно |
+| Кто может звать | `OWNER`, `MEMBER` или `COLLABORATOR`; комментарии ботов пропускаются. OpenCode дополнительно требует права write у автора |
+| Модель | `anthropic/claude-sonnet-5-5`, ключ в секрете `ANTHROPIC_API_KEY` |
+| Результат | ответ комментарием от `opencode-agent` в том же issue или PR, правки отдельной веткой и PR; прогон и лог во вкладке [Actions](https://github.com/alexander-lis/ai-for-developers-project-387/actions/workflows/opencode.yml) |
+
+Пример: `/oc запусти скилл to-spec по обсуждению этого issue`. Вопросы и решения остаются в комментариях, следующий вызов читает их перед работой.
+
+**Публикация сессий отключена.** Параметр `share` в воркфлоу не задан: текущий action OpenCode его игнорирует, публикация сессий у OpenCode прекращена. Сессии остаются только в логе прогона.
+
+**Отличие от локального агента.** Локально работает Claude Code, скиллы `to-spec`, `to-tickets`, `implement-spec`, `tdd` и `code-review` он берёт из глобального плагина `mattpocock-skills`. На раннере их нет, поэтому воркфлоу скачивает те же скиллы из [mattpocock/skills](https://github.com/mattpocock/skills) на зафиксированном коммите в `~/.config/opencode/skills`. Правила `AGENTS.md` и настройки трекера в `docs/agents/` приходят вместе с кодом.
+
+**Права.** Агент действует от имени GitHub App [opencode-agent](https://github.com/apps/opencode-agent), установленного на репозиторий: токен App выдаётся через OIDC (`id-token: write`), checkout только читает код (`contents: read`, `persist-credentials: false`). `gh` в shell агента получает `GITHUB_TOKEN` с `issues: write`, его используют скиллы, создающие issues и метки. `pull-requests: read` нужен проверке форка.
+
+**Форки.** Комментарии авторов без доступа к репозиторию до агента не доходят. Если доверенный участник позовёт агента в PR из форка, прогон остановится до checkout: агент запускал бы чужой код с ключом модели в окружении. `pull_request_target` не используется.
+
+**Ограничения.** Тайм-аут 30 минут, на один issue или PR одновременно идёт один прогон, следующая команда ждёт. Остановить прогон: Cancel workflow в Actions; отключить вызовы: Disable workflow; при утечке отозвать ключ в консоли Anthropic.
+
 ---
 
 <details>
