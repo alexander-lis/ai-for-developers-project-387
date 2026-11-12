@@ -148,6 +148,72 @@ public class MeetingsTests
         Assert.Null(meeting.Topic);
     }
 
+    [Fact]
+    public async Task Book_WithoutTopicHasNoTopicField()
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+
+        var response = await Post(api.CreateClient(), typeId, "Анна", TuesdayTen);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await response.MatchesContract(Path);
+        Assert.DoesNotContain("topic", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task List_MeetingWrittenBeforeTopicHasNoTopicField()
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+        await api.AddMeetings(new Meeting
+        {
+            Id = Guid.NewGuid(),
+            MeetingTypeId = typeId,
+            MeetingTypeName = "Звонок",
+            GuestName = "Анна",
+            Start = new DateTime(2026, 11, 10, 7, 0, 0, DateTimeKind.Utc),
+            End = new DateTime(2026, 11, 10, 8, 0, 0, DateTimeKind.Utc),
+            Topic = null,
+        });
+
+        var response = await api.CreateClient().GetAsync(Path);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await response.MatchesContract(Path);
+        Assert.Equal("Анна", Assert.Single(await List(api.CreateClient())).GuestName);
+        Assert.DoesNotContain("topic", await response.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EditingOrDeletingMeetingType_KeepsTopic(bool edit)
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+        var client = api.CreateClient();
+        await client.PostAsJsonAsync(Path, new
+        {
+            meetingTypeId = typeId,
+            guestName = "Анна",
+            topic = "Вопрос про тариф",
+            start = TuesdayTen,
+        });
+
+        if (edit)
+        {
+            (await client.PutAsJsonAsync($"/api/meeting-types/{typeId}", new { name = "Разбор", durationMinutes = 30 }))
+                .EnsureSuccessStatusCode();
+        }
+        else
+        {
+            (await client.DeleteAsync($"/api/meeting-types/{typeId}")).EnsureSuccessStatusCode();
+        }
+
+        Assert.Equal("Вопрос про тариф", Assert.Single(await List(client)).Topic);
+    }
+
     public static TheoryData<string, string> InvalidInputs => new()
     {
         { """{"guestName":"Анна","start":"2026-11-10T07:00:00Z"}""", "meetingTypeId" },

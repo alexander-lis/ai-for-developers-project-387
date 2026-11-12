@@ -84,3 +84,23 @@ it("shows the topic of a meeting to the owner", async () => {
 
   expect(await screen.findByText("Вопрос про тариф")).toBeTruthy();
 });
+
+it("does not show the topic to the guest on the upcoming meetings page", async () => {
+  givenMeetings([meeting]);
+
+  renderApp("/meetings");
+
+  expect(await screen.findByText("Анна")).toBeTruthy();
+  expect(screen.queryByText("Вопрос про тариф")).toBeNull();
+});
+
+it("shows no topic block for a meeting without topic", async () => {
+  givenMeetings([{ ...meeting, topic: undefined }]);
+  localStorage.setItem("calendar.role", "owner");
+
+  renderApp("/owner/meetings");
+
+  // Name, time and nothing else: the topic block would be a third paragraph.
+  expect(await screen.findByText("Анна")).toBeTruthy();
+  expect(screen.getByRole("listitem").querySelectorAll("p")).toHaveLength(2);
+});
