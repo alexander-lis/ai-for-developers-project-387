@@ -1,0 +1,83 @@
+name: opencode-triage
+
+# Auto-triage: the agent makes a first pass over a newly opened issue with the `triage` skill,
+# labels it and asks for missing details. Its reply is posted as a comment by the OpenCode action.
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    # Incoming requests from trusted humans only: owner, org member or collaborator. Spam and
+    # fork authors never reach the model key. Issues opened with a state label from
+    # docs/agents/triage-labels.md are already triaged: to-spec and to-tickets open specs and
+    # tickets with `ready-for-agent`. Those are created with GITHUB_TOKEN and start no workflow
+    # at all, the label and bot filters are a second line in case that changes.
+    if: >-
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+               github.event.issue.author_association) &&
+      github.event.issue.user.type != 'Bot' &&
+      !contains(github.event.issue.labels.*.name, 'ready-for-agent') &&
+      !contains(github.event.issue.labels.*.name, 'ready-for-human') &&
+      !contains(github.event.issue.labels.*.name, 'wontfix')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Same group as opencode.yml: a `/oc` command on this issue waits for the triage to finish.
+    concurrency:
+      group: opencode-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read # checkout
+      id-token: write # OIDC token, exchanged for the OpenCode GitHub App token
+      issues: write # `gh issue edit` in the agent shell sets triage labels
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Same pinned commit as opencode.yml; triage calls grilling and domain-modeling.
+      - name: Install skills
+        shell: bash # pipefail: a failed download fails the step
+        env:
+          SKILLS_SHA: 49dd158d1076134a641b33efb035946536778336
+        run: |
+          mkdir -p "$RUNNER_TEMP/skills" ~/.config/opencode/skills
+          curl -fsSL "https://codeload.github.com/mattpocock/skills/tar.gz/$SKILLS_SHA" \
+            | tar -xz -C "$RUNNER_TEMP/skills" --strip-components=1
+          for skill in engineering/triage engineering/domain-modeling productivity/grilling; do
+            cp -R "$RUNNER_TEMP/skills/skills/$skill" ~/.config/opencode/skills/
+          done
+          ls ~/.config/opencode/skills
+
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@810c0eba1a7348036f8bdf61e6632d0c36c6876c # v1.19.5
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # The App token is used by OpenCode itself; `gh` in the agent shell needs its own.
+          GH_TOKEN: ${{ github.token }}
+        with:
+          model: openrouter/anthropic/claude-haiku-5.5
+          # `issues` events carry no comment, so the action requires the instruction here.
+          prompt: |
+            Это автоматический предварительный разбор нового обращения в GitHub Issues.
+            Человека рядом нет: вопросы задавай в итоговом ответе, action опубликует его
+            комментарием в этом issue.
+
+            Разбери issue по скиллу triage, раздел «Triage a specific issue or PR»:
+
+            1. Прочитай README.md, GLOSSARY.md и docs/adr/. Найди в коде, что приложение уже
+               умеет по теме обращения, и назови, где искал. Если это уже сделано, так и скажи.
+            2. Поставь через `gh issue edit` одну метку категории (`bug` или `enhancement`)
+               и одну метку состояния из docs/agents/triage-labels.md: `needs-info`, если
+               для спецификации не хватает условий, иначе `needs-triage`. Метки
+               `ready-for-agent`, `ready-for-human` и `wontfix` не ставь и issue не закрывай:
+               это решает человек.
+            3. Ответ начни дисклеймером из скилла. Дальше рекомендация по категории и
+               состоянию с обоснованием, сводка по коду и блок «Triage Notes» с конкретными
+               вопросами к автору. В конце предложи следующий шаг: ответить на вопросы и
+               позвать `/oc` для to-spec.
+
+            Используй термины из GLOSSARY.md. Не меняй файлы, не создавай ветки, PR и issues,
+            не пиши комментарии через `gh`: только метки и итоговый ответ.
