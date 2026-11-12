@@ -65,15 +65,17 @@ jobs:
           npm ci --prefix .github/opencode-cli
           echo "$GITHUB_WORKSPACE/.github/opencode-cli/node_modules/.bin" >> "$GITHUB_PATH"
 
-      # The criteria come from the base branch, so a PR cannot weaken its own review.
-      # A PR that adds REVIEW.md for the first time is reviewed by its own version.
+      # The instruction and the criteria come from the base branch, so a PR cannot weaken its
+      # own review. A PR that adds them for the first time is reviewed by its own version.
       - name: Prepare the review request
         run: |
-          if ! git show "origin/$BASE_REF:REVIEW.md" > "$RUNNER_TEMP/REVIEW.md" 2>/dev/null; then
-            cp REVIEW.md "$RUNNER_TEMP/REVIEW.md"
-          fi
+          for file in .github/review-prompt.md REVIEW.md; do
+            if ! git show "origin/$BASE_REF:$file" > "$RUNNER_TEMP/$(basename "$file")" 2>/dev/null; then
+              cp "$file" "$RUNNER_TEMP/$(basename "$file")"
+            fi
+          done
           {
-            cat .github/review-prompt.md
+            cat "$RUNNER_TEMP/review-prompt.md"
             printf '\n\n## Данные этого запуска\n\n'
             printf -- '- Репозиторий: %s\n- PR: #%s\n- Проверяемый head SHA: %s\n- Базовая ветка: %s\n' \
               "$GITHUB_REPOSITORY" "$PR_NUMBER" "$HEAD_SHA" "$BASE_REF"
@@ -90,7 +92,9 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GH_TOKEN: ${{ github.token }}
           # The reviewer reads only. No file edits, no web, and in the shell only read commands:
-          # no `gh pr comment`, `gh pr edit`, `gh api` or git writes. Rules are matched
+          # no `gh pr comment`, `gh pr edit`, `gh api` or git writes, and no command that runs
+          # another one (`rg --pre`, `find -exec`). OpenCode checks every command of a pipeline,
+          # `&&` list or `$(...)` against these rules separately. Rules are matched
           # last-first: deny everything, then allow the read commands. A denied call fails
           # instead of asking, since nobody answers prompts in CI.
           OPENCODE_PERMISSION: >-
@@ -101,7 +105,7 @@ jobs:
             "gh issue view *": "allow", "git status": "allow", "ls": "allow", "gh run list *": "allow", "gh run view *": "allow",
             "git diff *": "allow", "git log *": "allow", "git show *": "allow",
             "git status *": "allow", "ls *": "allow", "cat *": "allow", "grep *": "allow",
-            "rg *": "allow", "wc *": "allow", "head *": "allow", "tail *": "allow"}}
+            "wc *": "allow", "head *": "allow", "tail *": "allow"}}
         run: |
           if [ -z "$OPENROUTER_API_KEY" ]; then
             echo "::error::Secret OPENROUTER_API_KEY is not set"
@@ -164,7 +168,8 @@ jobs:
   # this is the only job with a token that can write to the PR.
   publish:
     needs: review
-    if: always() && needs.review.result != 'skipped'
+    # Not always(): a newer push cancels this run, and the stale review publishes nothing.
+    if: ${{ !cancelled() && needs.review.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -185,8 +190,8 @@ jobs:
             printf '## Авторевью для `%s`\n\n%s\n\n---\n_Независимое авторевью, %s. Код не меняет: подтверждённые замечания передаёт агенту человек командой `/oc`._\n' \
               "$HEAD_SHA" "$REVIEW" "$RUN_URL" > body.md
           else
-            # No reason: the job was stopped from outside, by its own timeout-minutes or a
-            # Cancel; a newer push cancels this whole run, publish included.
+            # No reason: the review job was stopped by its own timeout-minutes before it could
+            # classify the outcome. A cancelled run does not get here, see `if` above.
             reason=${REASON:-unknown}
             printf '## Авторевью для `%s` не выполнено\n\n- Причина: `%s`\n- Логи: %s\n- Нужен человек: проверить логи и при необходимости перезапустить ревью.\n' \
               "$HEAD_SHA" "$reason" "$RUN_URL" > body.md
