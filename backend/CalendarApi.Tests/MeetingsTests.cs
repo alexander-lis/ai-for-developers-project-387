@@ -71,6 +71,83 @@ public class MeetingsTests
         Assert.Equal("Вопрос про тариф", Assert.Single(await List(client)).Topic);
     }
 
+    [Fact]
+    public async Task Book_TrimsTopic()
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+
+        var response = await PostWithTopic(api.CreateClient(), typeId, "Анна", "  Тариф\n", TuesdayTen);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await response.MatchesContract(Path);
+        Assert.Equal("Тариф", (await response.Content.ReadFromJsonAsync<MeetingBody>())?.Topic);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   \n")]
+    public async Task Book_BlankTopicIsStoredAsAbsent(string topic)
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+        var client = api.CreateClient();
+
+        var response = await PostWithTopic(client, typeId, "Анна", topic, TuesdayTen);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await response.MatchesContract(Path);
+        Assert.DoesNotContain("topic", await response.Content.ReadAsStringAsync());
+        Assert.Null(Assert.Single(await List(client)).Topic);
+    }
+
+    [Fact]
+    public async Task Book_AcceptsTopicOf500Characters()
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+
+        var response = await PostWithTopic(api.CreateClient(), typeId, "Анна", new string('а', 500), TuesdayTen);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await response.MatchesContract(Path);
+        Assert.Equal(500, (await response.Content.ReadFromJsonAsync<MeetingBody>())?.Topic?.Length);
+    }
+
+    [Fact]
+    public async Task Book_RejectsTopicOf501CharactersUnderTopic()
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+        var client = api.CreateClient();
+
+        var response = await PostWithTopic(client, typeId, "Анна", new string('а', 501), TuesdayTen);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await response.MatchesContract(Path);
+        var problem = await response.Content.ReadFromJsonAsync<ValidationProblem>();
+        Assert.Equal(["topic"], problem?.Errors.Keys);
+        // Nothing was booked: the slot is still free.
+        Assert.Empty(await List(client));
+    }
+
+    [Fact]
+    public async Task Book_ConflictStoresNoTopic()
+    {
+        await using var api = new CalendarApiFactory();
+        var typeId = await AddMeetingType(api, durationMinutes: 60);
+        var client = api.CreateClient();
+        await Book(client, typeId, "Анна", TuesdayTen);
+
+        var response = await PostWithTopic(client, typeId, "Борис", "Тема Бориса", TuesdayTen);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await response.MatchesContract(Path);
+        var meeting = Assert.Single(await List(client));
+        Assert.Equal("Анна", meeting.GuestName);
+        Assert.Null(meeting.Topic);
+    }
+
     public static TheoryData<string, string> InvalidInputs => new()
     {
         { """{"guestName":"Анна","start":"2026-11-10T07:00:00Z"}""", "meetingTypeId" },
@@ -356,6 +433,10 @@ public class MeetingsTests
     internal static Task<HttpResponseMessage> Post(
         HttpClient client, Guid meetingTypeId, string guestName, DateTimeOffset start) =>
         client.PostAsJsonAsync(Path, new { meetingTypeId, guestName, start });
+
+    internal static Task<HttpResponseMessage> PostWithTopic(
+        HttpClient client, Guid meetingTypeId, string guestName, string topic, DateTimeOffset start) =>
+        client.PostAsJsonAsync(Path, new { meetingTypeId, guestName, topic, start });
 
     private static StringContent Json(string body) => new(body, Encoding.UTF8, "application/json");
 

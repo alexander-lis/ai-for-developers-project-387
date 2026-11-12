@@ -25,6 +25,23 @@ it("keeps a topic, trimmed", () => {
   });
 });
 
+it("accepts a topic of 500 characters and rejects 501 under the topic field", () => {
+  expect(validateBookingForm({ guestName: "Анна", topic: "а".repeat(500) })).toEqual({
+    guestName: "Анна",
+    topic: "а".repeat(500),
+  });
+  expect(validateBookingForm({ guestName: "Анна", topic: "а".repeat(501) })).toEqual({
+    errors: { topic: "Не длиннее 500 символов" },
+  });
+});
+
+it("counts the topic length after trimming", () => {
+  expect(validateBookingForm({ guestName: "Анна", topic: ` ${"а".repeat(500)} ` })).toEqual({
+    guestName: "Анна",
+    topic: "а".repeat(500),
+  });
+});
+
 it("counts the length after trimming", () => {
   expect(validateBookingForm({ guestName: ` ${"а".repeat(100)} ` })).toEqual({
     guestName: "а".repeat(100),

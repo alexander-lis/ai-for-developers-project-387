@@ -103,10 +103,19 @@ function BookingForm({
     } else if (response?.status === 404) {
       onDone({ status: "meetingTypeDeleted" });
     } else if (response?.status === 400) {
-      // The form checks the name first, so this is rare; other fields have nothing to point at.
-      const nameErrors = error && "errors" in error ? error.errors.guestName : undefined;
-      if (nameErrors?.length) {
-        setErrors({ guestName: nameErrors.join(" ") });
+      // The form checks the fields first, so this is rare; a field the form does not show has
+      // nothing to point at.
+      const serverErrors: Record<string, string[] | undefined> =
+        error && "errors" in error ? error.errors : {};
+      const fieldErrors: BookingFormErrors = {};
+      if (serverErrors.guestName?.length) {
+        fieldErrors.guestName = serverErrors.guestName.join(" ");
+      }
+      if (serverErrors.topic?.length) {
+        fieldErrors.topic = serverErrors.topic.join(" ");
+      }
+      if (Object.keys(fieldErrors).length > 0) {
+        setErrors(fieldErrors);
       } else {
         setFormError(checkInput);
       }
@@ -132,15 +141,18 @@ function BookingForm({
           />
           <FieldError>{errors.guestName}</FieldError>
         </Field>
-        <Field>
+        <Field data-invalid={Boolean(errors.topic)}>
           <FieldLabel htmlFor={`${id}-topic`}>О чём хотите поговорить</FieldLabel>
           <Textarea
             id={`${id}-topic`}
             value={topic}
+            aria-invalid={Boolean(errors.topic)}
             onChange={(event) => {
               setTopic(event.target.value);
+              setErrors({});
             }}
           />
+          <FieldError>{errors.topic}</FieldError>
         </Field>
       </FieldGroup>
       <FieldError>{formError}</FieldError>

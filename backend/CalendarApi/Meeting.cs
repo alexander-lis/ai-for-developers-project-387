@@ -32,7 +32,7 @@ public class Meeting
         GuestName = guestName.Trim(),
         Start = slot.Start,
         End = slot.End,
-        Topic = topic,
+        Topic = string.IsNullOrWhiteSpace(topic) ? null : topic.Trim(),
     };
 }
 

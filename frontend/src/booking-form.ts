@@ -18,5 +18,8 @@ export function validateBookingForm(
     return { errors: { guestName: "Не длиннее 100 символов" } };
   }
   const topic = values.topic?.trim() ?? "";
+  if (topic.length > 500) {
+    return { errors: { topic: "Не длиннее 500 символов" } };
+  }
   return topic ? { guestName, topic } : { guestName };
 }
