@@ -78,6 +78,12 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # The App token is used by OpenCode itself; `gh` in the agent shell needs its own.
           GH_TOKEN: ${{ github.token }}
+          # Nobody answers permission prompts in CI: an `ask` hangs the run until the timeout.
+          # Rules are matched last-first, so deny everything outside the repo, then re-allow
+          # the skills and OpenCode's temp dir. A wrong path now fails the tool call instead.
+          OPENCODE_PERMISSION: >-
+            {"external_directory": {"*": "deny", "~/.config/opencode/skills/*": "allow",
+            "/tmp/opencode/*": "allow"}, "doom_loop": "deny"}
         with:
           # provider/model: OpenRouter, Claude Haiku 5.5, cheap with reliable tool calls.
           model: openrouter/anthropic/claude-haiku-5.5
