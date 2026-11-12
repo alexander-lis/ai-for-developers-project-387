@@ -104,7 +104,7 @@ E2E_BASE_URL=<публичная ссылка> npx playwright test
 | Команда | `/oc` или `/opencode` в тексте, это набор `mentions` по умолчанию, в воркфлоу он записан явно |
 | Кто может звать | `OWNER`, `MEMBER` или `COLLABORATOR`; комментарии ботов пропускаются. OpenCode дополнительно требует права write у автора |
 | Модель | `openrouter/anthropic/claude-haiku-5.5`: Claude Haiku 5.5 через OpenRouter, дешёвая модель с надёжным вызовом инструментов. Ключ в секрете `OPENROUTER_API_KEY`, модель меняется параметром `model` шага Run OpenCode |
-| Результат | ответ комментарием от `opencode-agent` в том же issue или PR, правки отдельной веткой и PR; прогон и лог во вкладке [Actions](https://github.com/alexander-lis/ai-for-developers-project-387/actions/workflows/opencode.yml) |
+| Результат | ответ комментарием от `opencode-agent` в том же issue или PR, правки отдельной веткой и PR (коммиты по Conventional Commits агент делает сам, это правило в `AGENTS.md`; PR агента вливаем squash); прогон и лог во вкладке [Actions](https://github.com/alexander-lis/ai-for-developers-project-387/actions/workflows/opencode.yml) |
 
 Вопросы и решения остаются в комментариях, следующий вызов читает их перед работой.
 
