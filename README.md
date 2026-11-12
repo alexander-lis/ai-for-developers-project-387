@@ -103,7 +103,7 @@ E2E_BASE_URL=<публичная ссылка> npx playwright test
 | Событие | комментарий в issue или PR (`issue_comment`) и комментарий к строке diff (`pull_request_review_comment`), только `types: [created]` |
 | Команда | `/oc` или `/opencode` в тексте, это набор `mentions` по умолчанию, в воркфлоу он записан явно |
 | Кто может звать | `OWNER`, `MEMBER` или `COLLABORATOR`; комментарии ботов пропускаются. OpenCode дополнительно требует права write у автора |
-| Модель | `anthropic/claude-sonnet-5-5`, ключ в секрете `ANTHROPIC_API_KEY` |
+| Модель | `openrouter/anthropic/claude-haiku-5.5`: Claude Haiku 5.5 через OpenRouter, дешёвая модель с надёжным вызовом инструментов. Ключ в секрете `OPENROUTER_API_KEY`, модель меняется параметром `model` шага Run OpenCode |
 | Результат | ответ комментарием от `opencode-agent` в том же issue или PR, правки отдельной веткой и PR; прогон и лог во вкладке [Actions](https://github.com/alexander-lis/ai-for-developers-project-387/actions/workflows/opencode.yml) |
 
 Пример: `/oc запусти скилл to-spec по обсуждению этого issue`. Вопросы и решения остаются в комментариях, следующий вызов читает их перед работой.
@@ -116,7 +116,7 @@ E2E_BASE_URL=<публичная ссылка> npx playwright test
 
 **Форки.** Комментарии авторов без доступа к репозиторию до агента не доходят. Если доверенный участник позовёт агента в PR из форка, прогон остановится до checkout: агент запускал бы чужой код с ключом модели в окружении. `pull_request_target` не используется.
 
-**Ограничения.** Тайм-аут 30 минут, на один issue или PR одновременно идёт один прогон, следующая команда ждёт. Остановить прогон: Cancel workflow в Actions; отключить вызовы: Disable workflow; при утечке отозвать ключ в консоли Anthropic.
+**Ограничения.** Тайм-аут 30 минут, на один issue или PR одновременно идёт один прогон, следующая команда ждёт. Остановить прогон: Cancel workflow в Actions; отключить вызовы: Disable workflow; при утечке отозвать ключ в кабинете OpenRouter. Там же задаётся лимит расходов на ключ.
 
 ---
 

@@ -73,10 +73,11 @@ jobs:
       - name: Run OpenCode
         uses: anomalyco/opencode/github@810c0eba1a7348036f8bdf61e6632d0c36c6876c # v1.19.5
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # The App token is used by OpenCode itself; `gh` in the agent shell needs its own.
           GH_TOKEN: ${{ github.token }}
         with:
-          model: anthropic/claude-sonnet-5-5
+          # provider/model: OpenRouter, Claude Haiku 5.5, cheap with reliable tool calls.
+          model: openrouter/anthropic/claude-haiku-5.5
           mentions: /opencode,/oc
           # No `share`: the action ignores it, session sharing was discontinued.
