@@ -12,6 +12,32 @@
       "rules": {
         "react/only-export-components": "off"
       }
+    },
+    {
+      // Tests find elements the way the user does: by role, label or text (Testing Library).
+      // DOM selectors check markup, so a layout change breaks them without a behaviour change.
+      "files": ["src/**/*.test.ts", "src/**/*.test.tsx"],
+      "rules": {
+        "no-restricted-properties": [
+          "error",
+          {
+            "property": "querySelector",
+            "message": "Не используйте DOM-селекторы в тестах: найдите элемент по роли (getByRole), подписи (getByLabelText) или тексту (getByText) из Testing Library."
+          },
+          {
+            "property": "querySelectorAll",
+            "message": "Не используйте DOM-селекторы в тестах: найдите элемент по роли (getByRole), подписи (getByLabelText) или тексту (getByText) из Testing Library."
+          },
+          {
+            "property": "getElementsByTagName",
+            "message": "Не используйте DOM-селекторы в тестах: найдите элемент по роли (getByRole), подписи (getByLabelText) или тексту (getByText) из Testing Library."
+          },
+          {
+            "property": "getElementsByClassName",
+            "message": "Не используйте DOM-селекторы в тестах: найдите элемент по роли (getByRole), подписи (getByLabelText) или тексту (getByText) из Testing Library."
+          }
+        ]
+      }
     }
   ]
 }
