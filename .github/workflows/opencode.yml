@@ -74,7 +74,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
       IS_PR: ${{ (github.event.issue.pull_request || github.event.pull_request) && 'true' || 'false' }}
-      RUN_NAME: opencode PR #${{ github.event.issue.number || github.event.pull_request.number }}
+      # Quoted: unquoted, YAML reads ` #...` as a comment and the title loses the number.
+      RUN_NAME: "opencode PR #${{ github.event.issue.number || github.event.pull_request.number }}"
     steps:
       # On a PR the agent checks out its branch and may run its code with the model key in env.
       # Code from a fork is untrusted even when a collaborator calls the agent on it.
@@ -107,6 +108,12 @@ jobs:
                   | select(.display_title == \"$RUN_NAME\" and .conclusion != \"skipped\")
                   | .run_attempt" \
             | awk '{ sum += $1 } END { print sum + 0 }')
+          # This run is always in the history: zero means the query or the title is wrong,
+          # and a broken counter must not let the agent run.
+          if [ "$used" -lt 1 ]; then
+            echo "::error::Run '$RUN_NAME' not found in the history, the budget cannot be counted"
+            exit 1
+          fi
           echo "used=$used" >> "$GITHUB_OUTPUT"
           echo "PR #$NUMBER: attempt $used of $RUN_LIMIT, head $head_sha"
           if [ "$used" -le "$RUN_LIMIT" ]; then
@@ -235,13 +242,14 @@ jobs:
           elapsed=$(( $(date +%s) - STARTED_AT ))
           if [ "$AGENT" = success ]; then
             reason=success
+          elif [ "$JOB_STATUS" = cancelled ] && [ "$elapsed" -lt $(( AGENT_TIMEOUT_MINUTES * 60 - 30 )) ]; then
+            # Cancelled by a human, also while the tools were still being set up.
+            reason=cancelled
           elif [ "$AGENT" = skipped ]; then
             # The agent never started: a setup step or the model key failed.
             reason=infra
           elif [ "$elapsed" -ge $(( AGENT_TIMEOUT_MINUTES * 60 - 30 )) ]; then
             reason=timeout
-          elif [ "$JOB_STATUS" = cancelled ]; then
-            reason=cancelled
           else
             reason=agent_failed
           fi
@@ -278,6 +286,9 @@ jobs:
           if [ "$ALLOWED" = false ]; then
             reason=limit_exhausted
             detail="Предел запусков агента на этот PR исчерпан: допущенных команд $USED при пределе $RUN_LIMIT, с этой включительно. Модель не вызывалась."
+          elif [ "$BUDGET" = cancelled ]; then
+            reason=cancelled
+            detail="Прогон отменён на проверке бюджета, агент не запускался."
           elif [ "$BUDGET" != success ]; then
             reason=infra
             detail="Проверка бюджета или форка не прошла, агент не запускался."
