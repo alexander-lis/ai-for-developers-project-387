@@ -1,0 +1,102 @@
+name: PR verify
+
+# Checks the working version of a PR before the merge: the app is built and started from the
+# exact head SHA the author pushed, and the Playwright scenario goes through it in a browser.
+# The trace of every test, the SHA and the result are kept as an Actions artifact, so a human
+# compares the artifact's SHA with the current PR head before deciding on the merge.
+# No secrets here: the job runs the PR's own code, fork PRs included.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      # Without `ref` the pull_request event checks out a temporary merge commit,
+      # not the version of the author.
+      - name: Checkout the PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Confirm the checked out commit
+        run: |
+          actual=$(git rev-parse HEAD)
+          echo "event head.sha: $HEAD_SHA"
+          echo "git rev-parse HEAD: $actual"
+          echo "CHECKED_OUT_SHA=$actual" >> "$GITHUB_ENV"
+          if [ "$actual" != "$HEAD_SHA" ]; then
+            echo "::error::Checked out $actual instead of the PR head $HEAD_SHA"
+            exit 1
+          fi
+
+      - name: Setup mise
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Install dependencies
+        run: |
+          mise run install
+          npx --prefix frontend playwright install --with-deps --only-shell chromium
+
+      - name: Generate the client from the contract
+        run: mise run generate
+
+      # The same scenario as mise run test:e2e: Playwright starts the API on an empty SQLite
+      # database and the app, then runs frontend/e2e. The trace is recorded for passed tests too.
+      - name: Run the browser scenario on the head SHA
+        id: e2e
+        working-directory: frontend
+        run: npx playwright test --trace on --reporter=list,html
+
+      - name: Record the result
+        if: always()
+        env:
+          OUTCOME: ${{ steps.e2e.outcome }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          mkdir -p verification
+          {
+            echo "pr: $PR_NUMBER"
+            echo "head_sha: $HEAD_SHA"
+            echo "checked_out_sha: ${CHECKED_OUT_SHA:-none}"
+            echo "result: $OUTCOME"
+            echo "run: $RUN_URL"
+            echo "finished_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } | tee verification/result.txt
+          {
+            echo "### Browser check of PR #$PR_NUMBER"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| head SHA | \`$HEAD_SHA\` |"
+            echo "| checked out | \`${CHECKED_OUT_SHA:-none}\` |"
+            echo "| result | **$OUTCOME** |"
+            echo "| artifact | \`e2e-$HEAD_SHA\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the trace, the report and the SHA
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-${{ github.event.pull_request.head.sha }}
+          path: |
+            verification/
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 30
+          if-no-files-found: error
