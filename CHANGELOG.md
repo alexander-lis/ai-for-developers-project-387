@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/alexander-lis/ai-for-developers-project-387/compare/v1.2.1...v1.3.0) (2026-11-12)
+
+
+### Features
+
+* разбор обращений агентом и автотриаж ([#12](https://github.com/alexander-lis/ai-for-developers-project-387/issues/12)) ([#13](https://github.com/alexander-lis/ai-for-developers-project-387/issues/13)) ([e8b6d23](https://github.com/alexander-lis/ai-for-developers-project-387/commit/e8b6d234e7cfdda33a2aa728f357f95f78a612e5))
+* тема встречи при записи, видна владельцу ([#15](https://github.com/alexander-lis/ai-for-developers-project-387/issues/15)) ([#24](https://github.com/alexander-lis/ai-for-developers-project-387/issues/24)) ([e7221d3](https://github.com/alexander-lis/ai-for-developers-project-387/commit/e7221d3feada60fc713e064fe6d075de74a1f339))
+
+
+### Bug Fixes
+
+* агент в Actions не ждёт запроса разрешений ([#21](https://github.com/alexander-lis/ai-for-developers-project-387/issues/21)) ([0faf6d1](https://github.com/alexander-lis/ai-for-developers-project-387/commit/0faf6d14cb33a7e201db64c9cec0f9616147c1cc))
+* предел запусков агента на PR действительно считает прогоны ([#26](https://github.com/alexander-lis/ai-for-developers-project-387/issues/26)) ([ba31d21](https://github.com/alexander-lis/ai-for-developers-project-387/commit/ba31d2182c4bae08046a973a7e6b8d6c02e68a40))
+
 ## [1.2.1](https://github.com/alexander-lis/ai-for-developers-project-387/compare/v1.2.0...v1.2.1) (2026-11-12)
 
 
