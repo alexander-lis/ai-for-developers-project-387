@@ -5,9 +5,7 @@
 
 ### Features
 
-* агент OpenCode в GitHub по команде /oc ([eb67229](https://github.com/alexander-lis/ai-for-developers-project-387/commit/eb6722967c71db357b7b1f30c07223b6e3ce2083))
 * агент OpenCode в GitHub по команде /oc ([489bb19](https://github.com/alexander-lis/ai-for-developers-project-387/commit/489bb194a092054e3b1d6c145115b719ab3b0a63))
-* агент OpenCode на модели через OpenRouter ([6236c27](https://github.com/alexander-lis/ai-for-developers-project-387/commit/6236c2757483d5fa50af6bcdb62708725ff17dab))
 * агент OpenCode на модели через OpenRouter ([c25ff0e](https://github.com/alexander-lis/ai-for-developers-project-387/commit/c25ff0e2f00579f622db53de0da0b48b585e9683))
 
 ## [1.1.0](https://github.com/alexander-lis/ai-for-developers-project-386/compare/v1.0.0...v1.1.0) (2026-11-09)
