@@ -90,6 +90,16 @@ api.MapGet("/meetings", async (CalendarDb db, TimeProvider time) =>
 api.MapPost("/meetings", async Task<Results<Created<Meeting>, NotFound, ValidationProblem, ProblemHttpResult>> (
     MeetingInput input, CalendarDb db, TimeProvider time) =>
 {
+    // The length counts after trimming, as the form counts it, so it is checked here, not by an
+    // attribute that would see the raw text.
+    if (input.Topic?.Trim().Length > 500)
+    {
+        return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["topic"] = ["The topic is longer than 500 characters after trimming."],
+        });
+    }
+
     var now = time.GetUtcNow();
 
     // BEGIN IMMEDIATE, the Microsoft.Data.Sqlite default: one writer at a time, so of simultaneous
@@ -123,7 +133,7 @@ api.MapPost("/meetings", async Task<Results<Created<Meeting>, NotFound, Validati
             detail: "Another meeting crosses the slot.");
     }
 
-    var meeting = Meeting.Book(meetingType, input.GuestName, slot);
+    var meeting = Meeting.Book(meetingType, input.GuestName, slot, input.Topic);
     db.Meetings.Add(meeting);
     await db.SaveChangesAsync();
     await transaction.CommitAsync();

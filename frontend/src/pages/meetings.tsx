@@ -2,6 +2,7 @@ import { calendarGet, meetingsList } from "@/client";
 import { LoadStatus } from "@/components/load-status";
 import { MeetingCard } from "@/components/meeting-card";
 import { noMeetings } from "@/messages";
+import { useRole } from "@/role";
 import { useLoad } from "@/use-load";
 
 async function fetchMeetings() {
@@ -18,6 +19,7 @@ async function fetchMeetings() {
  */
 export function MeetingsPage({ title }: { title: string }) {
   const { state, reload } = useLoad(fetchMeetings);
+  const { role } = useRole();
 
   return (
     <div className="flex flex-col gap-8 py-20">
@@ -29,7 +31,12 @@ export function MeetingsPage({ title }: { title: string }) {
         ) : (
           <ul aria-label="Предстоящие встречи" className="flex flex-col gap-3">
             {state.data.meetings.map((meeting) => (
-              <MeetingCard key={meeting.id} meeting={meeting} timeZone={state.data.timeZone} />
+              <MeetingCard
+                key={meeting.id}
+                meeting={meeting}
+                timeZone={state.data.timeZone}
+                showTopic={role === "owner"}
+              />
             ))}
           </ul>
         ))}

@@ -41,6 +41,7 @@ public class CalendarDb(DbContextOptions<CalendarDb> options) : DbContext(option
         {
             meeting.Property(m => m.MeetingTypeName).HasMaxLength(100);
             meeting.Property(m => m.GuestName).HasMaxLength(100);
+            meeting.Property(m => m.Topic).HasMaxLength(500);
         });
     }
 

@@ -188,6 +188,10 @@ model Meeting {
 
   /** Start plus the meeting type duration at booking */
   end: utcDateTime;
+
+  /** What the Guest wants to talk about; absent when the Guest left it empty */
+  @maxLength(500)
+  topic?: string;
 }
 
 /** What a Guest sends to book a slot */
@@ -202,6 +206,13 @@ model MeetingInput {
   @minLength(1)
   @maxLength(100)
   guestName: string;
+
+  /**
+   * What the Guest wants to talk about; optional, and the Owner sees it in the list of meetings.
+   * Stored without leading and trailing whitespace, and a topic of only whitespace is stored as
+   * absent. The length counts after trimming: longer than 500 characters is a 400 under `topic`.
+   */
+  topic?: string;
 
   /**
    * The start of a slot the server offers for the meeting type, with any offset. A start off the

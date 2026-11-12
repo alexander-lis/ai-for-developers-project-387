@@ -59,6 +59,15 @@ public class CalendarApiFactory : WebApplicationFactory<Program>
         await db.SaveChangesAsync();
     }
 
+    /// <summary>Stores meetings directly through the EF Core context, e.g. rows written before a column existed.</summary>
+    public async Task AddMeetings(params Meeting[] meetings)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CalendarDb>();
+        db.Meetings.AddRange(meetings);
+        await db.SaveChangesAsync();
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:Calendar", ConnectionString(_databasePath));

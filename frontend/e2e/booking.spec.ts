@@ -38,10 +38,13 @@ async function pickFirstSlot(page: Page) {
   return { slot, slotText, time };
 }
 
-async function confirmBooking(page: Page, guestName: string) {
+async function confirmBooking(page: Page, guestName: string, topic?: string) {
   await page.getByRole("button", { name: "Записаться" }).click();
   const dialog = page.getByRole("dialog", { name: "Записаться на встречу" });
   await dialog.getByLabel("Имя").fill(guestName);
+  if (topic) {
+    await dialog.getByLabel("О чём хотите поговорить").fill(topic);
+  }
   await dialog.getByRole("button", { name: "Подтвердить" }).click();
   await expect(dialog).toBeHidden();
 }
@@ -57,9 +60,10 @@ test("гость записывается на Слот, Встречу видя
   page,
 }) => {
   const guestName = `Гость ${run}`;
+  const topic = `Тариф и расписание ${run}`;
   const { slotText, time } = await pickFirstSlot(page);
 
-  await confirmBooking(page, guestName);
+  await confirmBooking(page, guestName, topic);
 
   await expect(
     page.getByText(`Вы записаны: ${meetingTypeName}, ${slotText}`, { exact: true }),
@@ -74,6 +78,7 @@ test("гость записывается на Слот, Встречу видя
   await page.getByRole("link", { name: "Встречи", exact: true }).click();
   await expect(upcomingMeeting(page, guestName)).toContainText(meetingTypeName);
   await expect(upcomingMeeting(page, guestName)).toContainText(slotText);
+  await expect(upcomingMeeting(page, guestName)).toContainText(topic);
 });
 
 test("гость записывается на Слот, который заняли, пока он был выбран, и получает Конфликт", async ({
