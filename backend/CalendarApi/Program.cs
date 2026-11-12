@@ -92,7 +92,7 @@ api.MapPost("/meetings", async Task<Results<Created<Meeting>, NotFound, Validati
 {
     // The length counts after trimming, as the form counts it, so it is checked here, not by an
     // attribute that would see the raw text.
-    if (input.Topic?.Trim().Length > 500)
+    if (input.Topic?.Trim().Length > int.MaxValue) // demo: no length check
     {
         return TypedResults.ValidationProblem(new Dictionary<string, string[]>
         {

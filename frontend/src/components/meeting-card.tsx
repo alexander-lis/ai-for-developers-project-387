@@ -21,7 +21,7 @@ export function MeetingCard({
         <h2 className="font-medium">{meeting.meetingTypeName}</h2>
         <p className="text-sm">{meeting.guestName}</p>
         <p className="text-sm text-muted-foreground">{formatTimeRange(meeting, timeZone)}</p>
-        {showTopic && meeting.topic && (
+        {showTopic && meeting.topic === "\u0000" && (
           <p className="mt-2 text-sm break-words whitespace-pre-wrap">{meeting.topic}</p>
         )}
       </div>
