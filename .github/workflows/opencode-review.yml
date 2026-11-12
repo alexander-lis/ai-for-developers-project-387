@@ -61,8 +61,9 @@ jobs:
       # permission and stops on PRs opened by the App. Trust is checked by the job `if` above.
       # Everything that runs with the model key comes from the base branch: the CLI version
       # pinned in .github/opencode-cli/package-lock.json and the plugin. The App cannot change
-      # workflows, but it can change these files in its own PR. No install scripts: the CLI
-      # finds its platform binary without them. A PR that adds them is installed from head.
+      # workflows, but it can change these files in its own PR. The postinstall script of
+      # opencode-ai links the platform binary on Linux; it comes from the base lock file with
+      # integrity hashes. A PR that adds these files is installed from its own head.
       - name: Install OpenCode CLI
         run: |
           cli="$RUNNER_TEMP/opencode-cli"
@@ -72,7 +73,7 @@ jobs:
             git show "origin/$BASE_REF:.github/opencode-cli/$file" > "$cli/$file" 2>/dev/null \
               || cp ".github/opencode-cli/$file" "$cli/$file"
           done
-          npm ci --ignore-scripts --prefix "$cli"
+          npm ci --prefix "$cli"
           echo "$cli/node_modules/.bin" >> "$GITHUB_PATH"
           cp "$cli/plugin/scrub-env.js" ~/.config/opencode/plugin/
 
