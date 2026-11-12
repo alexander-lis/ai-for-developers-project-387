@@ -141,6 +141,12 @@ jobs:
           # The review is the last text the model wrote.
           jq -rs '[.[] | select(.type == "text") | .part.text] | last // ""' \
             "$RUNNER_TEMP/events.jsonl" > "$RUNNER_TEMP/review.md"
+          if [ ! -s "$RUNNER_TEMP/events.jsonl" ]; then
+            # No event at all: the CLI did not start a session, the model was never called.
+            echo "::error::OpenCode exited with $status before the session started"
+            echo "reason=infra" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
           if [ "$status" -ne 0 ] || [ ! -s "$RUNNER_TEMP/review.md" ]; then
             echo "::error::OpenCode exited with $status or wrote no review"
             echo "reason=agent_failed" >> "$GITHUB_OUTPUT"
