@@ -22,7 +22,9 @@ export function MeetingCard({
         <p className="text-sm">{meeting.guestName}</p>
         <p className="text-sm text-muted-foreground">{formatTimeRange(meeting, timeZone)}</p>
         {showTopic && meeting.topic && (
-          <p className="mt-2 text-sm break-words whitespace-pre-wrap">{meeting.topic}</p>
+          <section aria-label="Тема" className="mt-2">
+            <p className="text-sm break-words whitespace-pre-wrap">{meeting.topic}</p>
+          </section>
         )}
       </div>
       <span className="shrink-0 text-sm text-muted-foreground">{formatDuration(meeting)}</span>

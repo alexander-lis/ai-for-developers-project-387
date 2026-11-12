@@ -83,6 +83,7 @@ it("shows the topic of a meeting to the owner", async () => {
   renderApp("/owner/meetings");
 
   expect(await screen.findByText("Вопрос про тариф")).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Тема" }).textContent).toContain("Вопрос про тариф");
 });
 
 it("does not show the topic to the guest on the upcoming meetings page", async () => {
@@ -91,6 +92,7 @@ it("does not show the topic to the guest on the upcoming meetings page", async (
   renderApp("/meetings");
 
   expect(await screen.findByText("Анна")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Тема" })).toBeNull();
   expect(screen.queryByText("Вопрос про тариф")).toBeNull();
 });
 
@@ -100,7 +102,6 @@ it("shows no topic block for a meeting without topic", async () => {
 
   renderApp("/owner/meetings");
 
-  // Name, time and nothing else: the topic block would be a third paragraph.
   expect(await screen.findByText("Анна")).toBeTruthy();
-  expect(screen.getByRole("listitem").querySelectorAll("p")).toHaveLength(2);
+  expect(screen.queryByRole("region", { name: "Тема" })).toBeNull();
 });
