@@ -1,0 +1,76 @@
+name: CI
+
+on: push
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # commitlint reads the pushed commits
+          persist-credentials: false
+
+      # Installs the tools pinned in mise.toml, the same ones used locally.
+      - name: Setup mise
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: mise run install
+
+      # A new branch or a force push has no usable "before" commit: check the last one.
+      - name: Check commit messages
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            npx --no -- commitlint --from "$BEFORE" --to "$GITHUB_SHA"
+          else
+            npx --no -- commitlint --last
+          fi
+
+      # The browser for the frontend-e2e step; caching it saves no time, says Playwright.
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps --only-shell chromium
+
+      - name: Run checks
+        run: mise run check
+
+  # Not in mise run check: that one has to work without a Docker daemon.
+  docker-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t calendar .
+
+      - name: Start container on the port from PORT
+        run: docker run -d --name calendar -e PORT=4321 -p 4321:4321 calendar
+
+      # --retry-all-errors: until the server starts, Docker accepts and then resets connections.
+      - name: Check the API and the frontend respond
+        run: |
+          curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 \
+            http://127.0.0.1:4321/api/health
+          curl --fail --silent --show-error --output /dev/null http://127.0.0.1:4321/book
+
+      - name: Show container logs
+        if: failure()
+        run: docker logs calendar

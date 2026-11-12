@@ -1,0 +1,79 @@
+# Календарь звонков
+
+Прототип сервиса записи на звонки. Сценарии и ограничения продукта: [README.md](README.md), читать перед работой над фичей.
+
+## Команды
+
+Запускать из корня.
+
+- `mise run setup`: зависимости, Chromium для Playwright и git-хуки, один раз после клонирования
+- `mise run dev`: серверы в фоне, приложение на http://localhost:5173, API на :5284
+- `mise run dev:stop`: остановить серверы
+- `mise daemons logs backend`: логи сервера, так же `frontend`
+- `mise daemons restart backend`: применить правки C#, фронтенд обновляется сам
+- `mise run generate`: пересоздать клиент после правки контракта
+- `mise run test`: все тесты, кроме браузерного сценария
+- `mise run test:e2e`: браузерный сценарий Playwright (`frontend/e2e`) на своих серверах: API на :5384 с пустой базой SQLite во временной папке, приложение на :5374; `mise run dev` ему не мешает. Входит в `check`, но не в `pre-push`
+- `mise run lint`: линтеры, форматтеры, типы
+- `mise run fix`: исправить форматирование
+- `mise run check`: все проверки, то же запускает CI; задача готова, когда он зелёный
+- `docker build -t calendar . && docker run --rm -e PORT=8080 -p 8080:8080 calendar`: приложение в контейнере, как в продакшене. Сборку и запуск образа проверяет job `docker-image` в CI, в `check` их нет
+- `E2E_BASE_URL=<адрес> npx playwright test` из `frontend/`: браузерный сценарий по запущенному контейнеру или публичной ссылке, свои серверы не поднимаются. Оставляет в базе Тип встречи и две Встречи
+- `dotnet ef migrations add <Name> --project backend/CalendarApi`: миграция после правки модели EF Core, сервер применяет её при старте
+
+Один тест:
+
+- `dotnet test backend/CalendarApi.slnx --filter FullyQualifiedName~Health_ReturnsOk`
+- `cd frontend && npx vitest run src/App.test.tsx`
+- `cd frontend && npx playwright test -g "Конфликт"`; `--ui` открывает UI mode, `npx playwright show-trace test-results/<тест>/trace.zip` показывает трассу упавшего теста. Клиент `@/client` нужен заранее: `mise run generate`
+
+## Устройство
+
+`contract/main.tsp` это источник правды об API. `mise run generate` превращает его в `contract/tsp-output/schema/openapi.yaml`, а затем в `frontend/src/client`. Оба результата в git не входят, клиент импортируется как `@/client`. Генерируемые пути (`contract/tsp-output/`, `frontend/src/client/`) руками не правим: меняем `main.tsp` и запускаем `mise run generate`. CI генерирует их с нуля в `mise run check` перед сборкой и тестами. Фронтенд ходит в API только через `@/client`, без ручного `fetch`.
+
+Сервер в `backend/CalendarApi` (.NET 10, Minimal API) написан вручную: зрелого генератора под него нет. Компилятор не сверяет его с контрактом, поэтому при правке контракта обновляй `Program.cs` и тесты бекенда вместе с ним.
+
+Тесты бекенда сверяют ответы с `openapi.yaml` через `response.MatchesContract(path)` из `ContractAssert.cs`, поэтому без `mise run generate` они падают. Каждый `CalendarApiFactory` поднимает сервер на своём временном файле SQLite (`ConnectionStrings:Calendar`) и удаляет его при освобождении.
+
+Все эндпоинты лежат под `/api`: по этому префиксу Vite проксирует запросы на бекенд. В образе прокси нет: `Dockerfile` кладёт сборку фронтенда в `wwwroot`, и сервер сам отдаёт и её, и `/api` с порта из `PORT`. Пути приложения вне `/api` получают `index.html`, неизвестный путь под `/api` отвечает 404.
+
+Выкат на Render (вручную, влитие в `master` его не запускает) и подключение Render MCP из `.mcp.json` описаны в разделе «Деплой» `README.md`.
+
+Фронтенд: React Router, маршруты и навигация по ролям описаны в `frontend/src/routes.ts`, страницы в `frontend/src/pages`. Роль «владелец/гость» это фронтовое состояние в `localStorage` (`frontend/src/role-provider.tsx`), бекенд о ролях не знает.
+
+Термины предметной области в `GLOSSARY.md`: в коде, задачах и тестах используем их, а не синонимы.
+
+Компоненты shadcn/ui лежат в `frontend/src/components/ui`. Добавлять: `npx shadcn@latest add <name>` из `frontend/`, затем `mise run fix`.
+
+## История проекта
+
+Проект продолжает [ai-for-developers-project-386](https://github.com/alexander-lis/ai-for-developers-project-386): код перенесён из его `master` на релизе 1.1.0, история коммитов осталась там. Номера `#N` в `CHANGELOG.md` и в ADR указывают на Issues первого репозитория, новые задачи заводим здесь.
+
+- Исходная спецификация: [#19 Спецификация: запись на звонок](https://github.com/alexander-lis/ai-for-developers-project-386/issues/19).
+- Карта решений: [#3 Карта решений: спецификация записи на звонок](https://github.com/alexander-lis/ai-for-developers-project-386/issues/3), тикеты решений #4–#12 в ней. Принятые решения перенесены в `GLOSSARY.md` и `docs/adr/`, каждая ADR ссылается на свой тикет.
+
+Перед правкой решения из ADR прочитай его тикет в первом репозитории: `gh issue view <N> -R alexander-lis/ai-for-developers-project-386 --comments`.
+
+## Правила
+
+- Коммиты по Conventional Commits (`feat:`, `fix:`, `chore:`); строки тела до 100 символов.
+- Коммит реализации ссылается на тикет, который он делает, номером в конце заголовка: `feat: запись на свободный слот (#24)`.
+- Релиз: release-please по `feat:`/`fix:` в `master` ведёт release-PR с changelog; его влитие ставит тег и GitHub Release. Версию руками не трогаем.
+- Свои проверки добавляй в задачу `check` через `hk.pkl`, а workflow в `ci.yml`. `.github/workflows/hexlet-check.yml` принадлежит Hexlet и остаётся без правок.
+- TypeScript во `frontend` держим на 6.x: `@hey-api/openapi-ts` 0.99.0 падает на версии 7. По этой же причине в `tsconfig` только `paths`: `baseUrl` в TS 6 даёт ошибку.
+- Типы проверяет `tsc -b`: корневой `tsconfig.json` содержит только ссылки, и `tsc --noEmit` на нём проверяет 0 файлов.
+- Vite в daemon запускается с `--host 127.0.0.1`: `ready_port` проверяет IPv4, а без флага Vite слушает только `[::1]`, и `mise run dev` виснет.
+
+## Agent skills
+
+### Issue tracker
+
+Задачи ведём в GitHub Issues репозитория `alexander-lis/ai-for-developers-project-387` (https://github.com/alexander-lis/ai-for-developers-project-387/issues) через `gh`. См. `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Стандартные пять меток триажа: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. См. `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` и `docs/adr/` в корне. См. `docs/agents/domain.md`.
