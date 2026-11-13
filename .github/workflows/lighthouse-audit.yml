@@ -306,16 +306,19 @@ jobs:
       - name: Check for duplicate findings
         if: ${{ !cancelled() && steps.agent.outcome != 'skipped' }}
         shell: bash
+        env:
+          JOURNAL: ${{ steps.input.outputs.journal }}
         run: |
           issues=$(gh issue list --label lighthouse --state all --limit 1000 --json number,body,createdAt)
           # shellcheck disable=SC2016 # backticks are part of the Markdown key line, not commands
           dups=$(jq -r '[.[] | {number, key: ([.body | scan("Ключ находки: `?(lighthouse:[A-Za-z0-9_-]+)")] | .[0][0])}
                           | select(.key)] | group_by(.key)[] | select(length > 1)
                         | "\(.[0].key): " + (map("#\(.number)") | join(", "))' <<<"$issues")
-          # Every issue opened while the agent ran, with or without labels: the journal is
-          # created before AGENT_STARTED_AT and is not counted.
-          created=$(gh issue list --state all --limit 100 --json createdAt \
-            --jq "[.[] | select(.createdAt >= \"$AGENT_STARTED_AT\")] | length")
+          # Every issue the agent's token (a bot) opened while it ran, with or without labels.
+          # Issues of people in that window and the journal itself are not counted.
+          created=$(gh issue list --state all --limit 100 --json number,createdAt,author \
+            --jq "[.[] | select(.createdAt > \"$AGENT_STARTED_AT\" and .author.is_bot
+                              and .number != $JOURNAL)] | length")
           echo "Issues created in this run: $created"
           failed=0
           if [ -n "$dups" ]; then
