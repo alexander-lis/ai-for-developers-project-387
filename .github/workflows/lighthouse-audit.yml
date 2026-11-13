@@ -192,6 +192,9 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # use_github_token: OpenCode and `gh` in the agent shell use the job token.
           GITHUB_TOKEN: ${{ github.token }}
+          # The session title is written by a "small" model. Unset, OpenCode picks an image
+          # model on OpenRouter, which needs a balance of $1 and logs a 402 on every run.
+          OPENCODE_CONFIG_CONTENT: '{"small_model": "openrouter/anthropic/claude-haiku-5.5"}'
           # Nobody answers permission prompts in CI. The agent reads the repository and in the
           # shell may only list, read, create and comment issues. No file edits: a dirty tree
           # would make the action push a branch and open a PR. Rules are matched last-first.
