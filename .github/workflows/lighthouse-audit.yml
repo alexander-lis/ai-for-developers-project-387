@@ -312,8 +312,11 @@ jobs:
           dups=$(jq -r '[.[] | {number, key: ([.body | scan("Ключ находки: `?(lighthouse:[A-Za-z0-9_-]+)")] | .[0][0])}
                           | select(.key)] | group_by(.key)[] | select(length > 1)
                         | "\(.[0].key): " + (map("#\(.number)") | join(", "))' <<<"$issues")
-          created=$(jq --arg since "$AGENT_STARTED_AT" '[.[] | select(.createdAt >= $since)] | length' <<<"$issues")
-          echo "Issues with label lighthouse created in this run: $created"
+          # Every issue opened while the agent ran, with or without labels: the journal is
+          # created before AGENT_STARTED_AT and is not counted.
+          created=$(gh issue list --state all --limit 100 --json createdAt \
+            --jq "[.[] | select(.createdAt >= \"$AGENT_STARTED_AT\")] | length")
+          echo "Issues created in this run: $created"
           failed=0
           if [ -n "$dups" ]; then
             echo "::error::Several issues share a finding key: $dups"
