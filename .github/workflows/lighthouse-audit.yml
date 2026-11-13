@@ -158,14 +158,16 @@ jobs:
             --description "Находка аудита Lighthouse, входящее обращение"
           gh label create audit-log --color BFD4F2 --force \
             --description "Журнал регулярного аудита"
-          journal=$(gh issue list --label audit-log --state open --limit 50 --json number,title \
-            --jq "[.[] | select(.title == \"$JOURNAL_TITLE\")][0].number // empty")
+          # Any state: a journal closed by a human is reused instead of opening a second one.
+          journal=$(gh issue list --label audit-log --state all --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"$JOURNAL_TITLE\")] | min_by(.number).number // empty")
           if [ -z "$journal" ]; then
             url=$(gh issue create --label audit-log --title "$JOURNAL_TITLE" --body \
               "Сюда воркфлоу [lighthouse-audit]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/master/.github/workflows/lighthouse-audit.yml) пишет вывод каждого прогона аудита: оценки, находки и ссылки на задачи. Задачи по находкам заводятся отдельными issue с меткой \`lighthouse\`.")
             journal=${url##*/}
           fi
           echo "journal=$journal" >> "$GITHUB_OUTPUT"
+          echo "AGENT_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           echo "Journal: #$journal"
           delimiter="SUMMARY_$(openssl rand -hex 16)"
           {
@@ -183,6 +185,7 @@ jobs:
           cp .github/opencode-cli/plugin/scrub-env.js ~/.config/opencode/plugin/
 
       - name: Run OpenCode
+        id: agent
         timeout-minutes: ${{ fromJSON(env.AGENT_TIMEOUT_MINUTES) }}
         uses: anomalyco/opencode/github@810c0eba1a7348036f8bdf61e6632d0c36c6876c # v1.19.5
         env:
@@ -229,7 +232,7 @@ jobs:
             ## Порядок
 
             1. Получи все задачи аудита одной командой:
-               `gh issue list --label lighthouse --state all --limit 200 --json number,title,state,body`
+               `gh issue list --label lighthouse --state all --limit 1000 --json number,title,state,body`
                Задача по находке уже есть, если в её теле есть строка `Ключ находки: <key>`
                с тем же ключом, в любом состоянии.
             2. Для каждой находки без задачи создай отдельный issue, не больше трёх за прогон,
@@ -298,6 +301,30 @@ jobs:
               --json number,title,state,url --jq '.[] | "- [#\(.number)](\(.url)) \(.title) (\(.state))"'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The prompt asks for no duplicates and at most three new issues; this checks it in code.
+      # It cannot undo an issue, but a violation fails the run and the journal gets a report.
+      - name: Check for duplicate findings
+        if: ${{ !cancelled() && steps.agent.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          issues=$(gh issue list --label lighthouse --state all --limit 1000 --json number,body,createdAt)
+          # shellcheck disable=SC2016 # backticks are part of the Markdown key line, not commands
+          dups=$(jq -r '[.[] | {number, key: ([.body | scan("Ключ находки: `?(lighthouse:[A-Za-z0-9_-]+)")] | .[0][0])}
+                          | select(.key)] | group_by(.key)[] | select(length > 1)
+                        | "\(.[0].key): " + (map("#\(.number)") | join(", "))' <<<"$issues")
+          created=$(jq --arg since "$AGENT_STARTED_AT" '[.[] | select(.createdAt >= $since)] | length' <<<"$issues")
+          echo "Issues with label lighthouse created in this run: $created"
+          failed=0
+          if [ -n "$dups" ]; then
+            echo "::error::Several issues share a finding key: $dups"
+            failed=1
+          fi
+          if [ "$created" -gt 3 ]; then
+            echo "::error::The agent opened $created finding issues, the limit is 3 per run"
+            failed=1
+          fi
+          exit "$failed"
+
   # Without the model: if the audit did not finish, the journal says so with a link to the logs,
   # so a silent failure is not mistaken for "no findings".
   report:
@@ -318,8 +345,8 @@ jobs:
           JOURNAL: ${{ needs.analyze.outputs.journal }}
         run: |
           if [ -z "$JOURNAL" ]; then
-            JOURNAL=$(gh issue list -R "$GITHUB_REPOSITORY" --label audit-log --state open --limit 50 \
-              --json number,title --jq "[.[] | select(.title == \"$JOURNAL_TITLE\")][0].number // empty")
+            JOURNAL=$(gh issue list -R "$GITHUB_REPOSITORY" --label audit-log --state all --limit 100 \
+              --json number,title --jq "[.[] | select(.title == \"$JOURNAL_TITLE\")] | min_by(.number).number // empty")
           fi
           body=$(printf '%s\n\n%s\n%s\n%s\n' \
             "**Аудит Lighthouse не выполнен**" \
