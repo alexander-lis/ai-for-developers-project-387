@@ -1,1 +1,3 @@
 node_modules/
+# Lighthouse CI output of local runs, reports never go into commits
+.lighthouseci/

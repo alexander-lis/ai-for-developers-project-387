@@ -1,0 +1,367 @@
+name: lighthouse-audit
+
+# Scheduled Lighthouse audit of the running app. The `collect` job runs Lighthouse CI without the
+# model and keeps the reports as an artifact. The `analyze` job hands the summary to the agent:
+# it looks for existing issues, opens an issue only for a new finding and posts the outcome
+# to the audit journal issue. A human decides whether a finding is taken into work.
+on:
+  schedule:
+    # Once a day at 06:17 Moscow time, off the full hour when the scheduler is busiest.
+    - cron: "17 6 * * *"
+      timezone: Europe/Moscow
+  workflow_dispatch:
+
+run-name: lighthouse-audit (${{ github.event_name }})
+
+permissions: {}
+
+# One audit at a time: two parallel runs would both miss each other's issue and open a duplicate.
+# A new run waits for the current one instead of cancelling it.
+concurrency:
+  group: lighthouse-audit
+  cancel-in-progress: false
+
+env:
+  ARTIFACT: lighthouse-${{ github.run_id }}-${{ github.run_attempt }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+  JOURNAL_TITLE: "Аудит Lighthouse: журнал прогонов"
+
+jobs:
+  # Lighthouse CI against the URL from the repository variable AUDIT_URL. No model, no secrets.
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # checkout: the summary script
+    env:
+      AUDIT_URL: ${{ vars.AUDIT_URL }}
+      LHCI_VERSION: 0.16.1
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check the audit URL
+        run: |
+          if [ -z "$AUDIT_URL" ]; then
+            echo "::error::Repository variable AUDIT_URL is not set"
+            exit 1
+          fi
+          echo "Auditing $AUDIT_URL"
+
+      # The free Render plan puts the service to sleep after 15 idle minutes, and the first
+      # request wakes it in about a minute. Lighthouse must measure the app, not the wake-up.
+      - name: Wake up the app
+        run: |
+          for attempt in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${AUDIT_URL%/}/api/health" || true)
+            echo "attempt $attempt: /api/health $code"
+            if [ "$code" = 200 ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$AUDIT_URL did not answer /api/health with 200"
+          exit 1
+
+      # Three runs, the representative (median) one is analysed. `collect` writes to .lighthouseci/
+      # (ignored by git), the reports are then copied out of the working tree.
+      - name: Run Lighthouse CI
+        env:
+          REPORT_DIR: ${{ runner.temp }}/lighthouse-report
+        run: |
+          npx --yes "@lhci/cli@$LHCI_VERSION" collect --url="$AUDIT_URL" --numberOfRuns=3 \
+            --settings.chromeFlags="--no-sandbox --headless=new"
+          npx --yes "@lhci/cli@$LHCI_VERSION" upload --target=filesystem --outputDir="$REPORT_DIR"
+
+      - name: Summarize the report
+        env:
+          REPORT_DIR: ${{ runner.temp }}/lighthouse-report
+        run: |
+          representative=$(jq -r '[.[] | select(.isRepresentativeRun)][0].jsonPath' "$REPORT_DIR/manifest.json")
+          jq -f .github/lighthouse/summary.jq "$representative" > "$REPORT_DIR/summary.json"
+          jq -n --arg url "$AUDIT_URL" --arg run "$RUN_URL" --arg sha "$GITHUB_SHA" \
+            --arg event "$GITHUB_EVENT_NAME" --arg artifact "$ARTIFACT" \
+            --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{app_url: $url, run_url: $run, workflow_sha: $sha, event: $event, artifact: $artifact, collected_at: $at}' \
+            > "$REPORT_DIR/run.json"
+          cat "$REPORT_DIR/summary.json"
+          {
+            echo "### Lighthouse: $AUDIT_URL"
+            echo
+            echo "| Категория | Оценка |"
+            echo "|---|---|"
+            jq -r '.categories | to_entries[] | "| \(.key) | \(.value) |"' "$REPORT_DIR/summary.json"
+            echo
+            echo "Находки (weight > 0, score < 0.9):"
+            jq -r 'if (.findings | length) == 0 then "- нет" else .findings[] | "- `\(.key)`: \(.title)" end' \
+              "$REPORT_DIR/summary.json"
+            echo
+            echo "Полные отчёты: артефакт \`$ARTIFACT\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: ${{ runner.temp }}/lighthouse-report
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze:
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The agent works with GITHUB_TOKEN (`use_github_token`), so no OIDC and no App token.
+    # It only reads the code and writes issues: no contents: write, no pull-requests.
+    permissions:
+      contents: read # checkout: AGENTS.md, GLOSSARY.md and the code the finding points to
+      issues: write # labels, the journal comment and the finding issue
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AGENT_TIMEOUT_MINUTES: 15
+    outputs:
+      journal: ${{ steps.input.outputs.journal }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Outside the working tree: the action commits a dirty tree into a PR, reports never get there.
+      - name: Download the report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: ${{ runner.temp }}/lighthouse-report
+
+      - name: Check the model key
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::Secret OPENROUTER_API_KEY is not set"
+            exit 1
+          fi
+
+      # Labels and the journal issue are set up here, without the model, so every run writes
+      # to the same journal and the agent only has to find findings by their label.
+      - name: Prepare labels, the journal and the summary
+        id: input
+        env:
+          REPORT: ${{ runner.temp }}/lighthouse-report
+        run: |
+          gh label create lighthouse --color FBCA04 --force \
+            --description "Находка аудита Lighthouse, входящее обращение"
+          gh label create audit-log --color BFD4F2 --force \
+            --description "Журнал регулярного аудита"
+          # Any state: a journal closed by a human is reused instead of opening a second one.
+          journal=$(gh issue list --label audit-log --state all --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"$JOURNAL_TITLE\")] | min_by(.number).number // empty")
+          if [ -z "$journal" ]; then
+            url=$(gh issue create --label audit-log --title "$JOURNAL_TITLE" --body \
+              "Сюда воркфлоу [lighthouse-audit]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/master/.github/workflows/lighthouse-audit.yml) пишет вывод каждого прогона аудита: оценки, находки и ссылки на задачи. Задачи по находкам заводятся отдельными issue с меткой \`lighthouse\`.")
+            journal=${url##*/}
+          fi
+          echo "journal=$journal" >> "$GITHUB_OUTPUT"
+          echo "AGENT_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          echo "Journal: #$journal"
+          delimiter="SUMMARY_$(openssl rand -hex 16)"
+          {
+            echo "summary<<$delimiter"
+            jq . "$REPORT/summary.json"
+            echo "$delimiter"
+            echo "app_url=$(jq -r .app_url "$REPORT/run.json")"
+            echo "collected_at=$(jq -r .collected_at "$REPORT/run.json")"
+          } >> "$GITHUB_OUTPUT"
+
+      # The shell of the agent gets no model key, see the plugin.
+      - name: Install the shell env plugin
+        run: |
+          mkdir -p ~/.config/opencode/plugin
+          cp .github/opencode-cli/plugin/scrub-env.js ~/.config/opencode/plugin/
+
+      - name: Run OpenCode
+        id: agent
+        timeout-minutes: ${{ fromJSON(env.AGENT_TIMEOUT_MINUTES) }}
+        uses: anomalyco/opencode/github@810c0eba1a7348036f8bdf61e6632d0c36c6876c # v1.19.5
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # use_github_token: OpenCode and `gh` in the agent shell use the job token.
+          GITHUB_TOKEN: ${{ github.token }}
+          # Nobody answers permission prompts in CI. The agent reads the repository and in the
+          # shell may only list, read, create and comment issues. No file edits: a dirty tree
+          # would make the action push a branch and open a PR. Rules are matched last-first.
+          OPENCODE_PERMISSION: >-
+            {"edit": "deny", "webfetch": "deny", "websearch": "deny", "task": "deny",
+            "doom_loop": "deny", "external_directory": {"*": "deny", "/tmp/opencode/*": "allow"},
+            "bash": {"*": "deny",
+            "gh issue list *": "allow", "gh issue view *": "allow",
+            "gh issue create *": "allow", "gh issue comment *": "allow"}}
+        with:
+          model: openrouter/anthropic/claude-haiku-5.5
+          use_github_token: true
+          # schedule and workflow_dispatch carry no comment, so the instruction is given here.
+          prompt: |
+            Это регулярный аудит Lighthouse работающего приложения «Календарь звонков».
+            Человека рядом нет: вывод публикуешь сам через `gh`, итоговый ответ попадёт только
+            в лог прогона.
+
+            ## Данные прогона
+
+            - Проверенное приложение: ${{ steps.input.outputs.app_url }} (переменная репозитория
+              `AUDIT_URL`), отчёт снят ${{ steps.input.outputs.collected_at }}
+            - Прогон: ${{ env.RUN_URL }}
+            - Полные отчёты (HTML и JSON трёх прогонов Lighthouse, `summary.json`, `run.json`):
+              артефакт `${{ env.ARTIFACT }}` этого прогона, хранится 30 дней
+            - Журнал аудита: issue #${{ steps.input.outputs.journal }}
+
+            Сводка репрезентативного из трёх прогонов Lighthouse:
+
+            ```json
+            ${{ steps.input.outputs.summary }}
+            ```
+
+            Находка это элемент `findings`: аудит, который входит в оценку категории
+            (`weight` > 0) и получил `score` ниже 0.9. Ключ находки это её поле `key`.
+            `opportunities` находками не считаются, упоминай их только в журнале.
+
+            ## Порядок
+
+            1. Получи все задачи аудита одной командой:
+               `gh issue list --label lighthouse --state all --limit 1000 --json number,title,state,body`
+               Задача по находке уже есть, если в её теле есть строка `Ключ находки: <key>`
+               с тем же ключом, в любом состоянии.
+            2. Для каждой находки без задачи создай отдельный issue, не больше трёх за прогон,
+               начиная с большего `weight`:
+               `gh issue create --label lighthouse --label needs-triage --title '<заголовок>' --body '<тело>'`
+               Заголовок: `Lighthouse: <суть проблемы по-русски> (<audit>)`.
+               Тело, разделами:
+               - первой строкой `Ключ находки: <key>` дословно, по нему следующий аудит ищет дубли;
+               - «Проблема»: что проверяет аудит, оценка, категория, конкретные элементы из
+                 `items` (селектор, фрагмент, пояснение с числами);
+               - «Где в коде»: найди в `frontend/` (`index.html`, страницы, компоненты, стили)
+                 место, откуда это берётся, и назови файлы. Код не меняй;
+               - «Предлагаемое действие»: что поменять, чтобы аудит проходил;
+               - «Связь с отчётом»: проверенное приложение, ссылка на прогон, имя артефакта,
+                 время снятия отчёта и ссылка на журнал #${{ steps.input.outputs.journal }};
+               - последней строкой: «Это входящее обращение из автоматического аудита. Брать ли
+                 его в работу, решает человек после триажа.»
+            3. Если задача по ключу уже есть, новую не создавай и в неё не пиши: повторный
+               комментарий с теми же сведениями не нужен. Комментарий в существующую задачу
+               допустим, только если появились новые сведения: оценка или элементы заметно
+               изменились. Закрытую задачу не открывай: отметь в журнале, что находка
+               повторилась, решение за человеком.
+            4. Опубликуй вывод одним комментарием в журнал:
+               `gh issue comment ${{ steps.input.outputs.journal }} --body '<вывод>'`
+               В выводе: заголовок `Аудит Lighthouse, <дата и время снятия отчёта>`,
+               проверенное приложение, ссылка на прогон ${{ env.RUN_URL }} дословно, имя
+               артефакта, таблица оценок категорий и основных метрик, затем находки: для
+               каждой ключ, суть и задача `#номер` с пометкой «создана в этом прогоне» или
+               «уже есть, новых сведений нет». Если все находки уже известны, напиши
+               «Новых находок нет». Если `findings` пуст, напиши «Находок нет».
+               В конце коротко про `opportunities`.
+            5. Итоговый ответ: тот же вывод кратко.
+
+            ## Ограничения
+
+            - Файлы не меняй, ветки, коммиты и PR не создавай. В shell разрешены только
+              `gh issue list`, `gh issue view`, `gh issue create` и `gh issue comment`,
+              остальное отклоняется. Код читай инструментами чтения.
+            - Текст передавай прямо в `--body` в одинарных кавычках, переводы строк внутри
+              допустимы. Без `$(...)`, heredoc, `--body-file` и конвейеров: они будут
+              отклонены. Одинарных кавычек внутри текста не используй.
+            - Не выдумывай находок сверх `findings` и чисел сверх сводки.
+            - Используй термины из GLOSSARY.md.
+
+      # The journal entry is the result of the run, the artifact expires. The agent may have
+      # finished without posting it: then the run fails and the report job says so.
+      - name: Check the journal entry
+        shell: bash # pipefail: a failed request fails the step instead of reading as "no entry"
+        env:
+          JOURNAL: ${{ steps.input.outputs.journal }}
+        run: |
+          comment=$(gh api "repos/$GITHUB_REPOSITORY/issues/$JOURNAL/comments?per_page=100" --paginate \
+            --jq ".[] | select(.body | contains(\"$RUN_URL\")) | .html_url" | tail -n 1)
+          if [ -z "$comment" ]; then
+            echo "::error::The agent did not post the outcome with $RUN_URL to journal #$JOURNAL"
+            exit 1
+          fi
+          echo "Journal entry: $comment"
+          {
+            echo "### Вывод агента"
+            echo
+            echo "Запись в журнале: $comment"
+            echo
+            echo "Задачи аудита (метка \`lighthouse\`):"
+            gh issue list --label lighthouse --state all --limit 50 \
+              --json number,title,state,url --jq '.[] | "- [#\(.number)](\(.url)) \(.title) (\(.state))"'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The prompt asks for no duplicates and at most three new issues; this checks it in code.
+      # It cannot undo an issue, but a violation fails the run and the journal gets a report.
+      - name: Check for duplicate findings
+        if: ${{ !cancelled() && steps.agent.outcome != 'skipped' }}
+        shell: bash
+        env:
+          JOURNAL: ${{ steps.input.outputs.journal }}
+        run: |
+          issues=$(gh issue list --label lighthouse --state all --limit 1000 --json number,body,createdAt)
+          # shellcheck disable=SC2016 # backticks are part of the Markdown key line, not commands
+          dups=$(jq -r '[.[] | {number, key: ([.body | scan("Ключ находки: `?(lighthouse:[A-Za-z0-9_-]+)")] | .[0][0])}
+                          | select(.key)] | group_by(.key)[] | select(length > 1)
+                        | "\(.[0].key): " + (map("#\(.number)") | join(", "))' <<<"$issues")
+          # Every issue the agent's token (a bot) opened while it ran, with or without labels.
+          # Issues of people in that window and the journal itself are not counted.
+          created=$(gh issue list --state all --limit 100 --json number,createdAt,author \
+            --jq "[.[] | select(.createdAt > \"$AGENT_STARTED_AT\" and .author.is_bot
+                              and .number != $JOURNAL)] | length")
+          echo "Issues created in this run: $created"
+          failed=0
+          if [ -n "$dups" ]; then
+            echo "::error::Several issues share a finding key: $dups"
+            failed=1
+          fi
+          if [ "$created" -gt 3 ]; then
+            echo "::error::The agent opened $created finding issues, the limit is 3 per run"
+            failed=1
+          fi
+          exit "$failed"
+
+  # Without the model: if the audit did not finish, the journal says so with a link to the logs,
+  # so a silent failure is not mistaken for "no findings".
+  report:
+    needs: [collect, analyze]
+    if: >-
+      always() && (needs.collect.result == 'failure' || needs.analyze.result == 'failure' ||
+                   needs.collect.result == 'cancelled' || needs.analyze.result == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write # the journal comment
+    steps:
+      - name: Post the failure to the journal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COLLECT: ${{ needs.collect.result }}
+          ANALYZE: ${{ needs.analyze.result }}
+          JOURNAL: ${{ needs.analyze.outputs.journal }}
+        run: |
+          if [ -z "$JOURNAL" ]; then
+            JOURNAL=$(gh issue list -R "$GITHUB_REPOSITORY" --label audit-log --state all --limit 100 \
+              --json number,title --jq "[.[] | select(.title == \"$JOURNAL_TITLE\")] | min_by(.number).number // empty")
+          fi
+          body=$(printf '%s\n\n%s\n%s\n%s\n' \
+            "**Аудит Lighthouse не выполнен**" \
+            "- Сбор отчёта: \`$COLLECT\`, разбор агентом: \`$ANALYZE\`" \
+            "- Логи: $RUN_URL" \
+            "- Нужен человек: проверить логи, переменную AUDIT_URL и секрет модели, перезапустить вручную.")
+          echo "$body" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -n "$JOURNAL" ]; then
+            gh issue comment "$JOURNAL" -R "$GITHUB_REPOSITORY" --body "$body"
+          else
+            echo "::warning::No journal issue yet, the failure is only in this run"
+          fi
